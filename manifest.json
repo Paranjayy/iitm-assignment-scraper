@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "IITM Assignment Scraper",
+  "version": "1.0",
+  "description": "Adds a button to download IITM online degree assignments as a clean Markdown file.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://seek.onlinedegree.iitm.ac.in/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    },
+    "default_title": "Scrape IITM Assignment"
+  },
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  }
+} 
