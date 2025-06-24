@@ -7,12 +7,14 @@ A Chrome extension that converts IIT Madras online degree assignments into clean
 ## ✨ Features
 
 - **One-click export**: Simple toolbar button to scrape assignments
+- **Right-click context menu**: Export directly from right-click menu (no need to find the extension icon!)
 - **Clean Markdown format**: Well-structured output with proper formatting
 - **Course name in filename**: Automatically includes assignment and course title
 - **Math formula support**: Converts LaTeX/KaTeX equations to Markdown
 - **Checkbox preservation**: Maintains your selected answers with checkboxes
 - **Score & feedback**: Includes grading information and faculty answers
 - **Completely local**: No data sent anywhere - everything happens in your browser
+- **Ad-blocker friendly**: Bundled libraries prevent loading issues
 
 ## 🚀 Installation
 
@@ -61,7 +63,13 @@ If you want to create custom icons or modify the extension:
    - Go to `https://seek.onlinedegree.iitm.ac.in`
    - Open any graded assignment page
 
-2. **Click the extension icon**
+2. **Export your assignment** (choose one method):
+   
+   **Method A: Right-click menu (Easiest!)**
+   - Right-click anywhere on the assignment page
+   - Select "📝 Export Assignment to Markdown"
+   
+   **Method B: Extension icon**
    - Look for the IIT Madras logo in your Chrome toolbar
    - Single click to start the export
 
@@ -74,8 +82,9 @@ If you want to create custom icons or modify the extension:
 ```
 iitm-assignment-scraper/
 ├── manifest.json          # Extension configuration
-├── background.js          # Service worker (handles icon clicks)
+├── background.js          # Service worker (handles clicks & context menu)
 ├── scraper.js            # Main scraping logic
+├── turndown.js           # HTML-to-Markdown converter (bundled)
 ├── convert_icon.py       # Icon generation script
 ├── images/               # Extension icons
 │   ├── icon16.png       # 16x16 toolbar icon
@@ -86,11 +95,12 @@ iitm-assignment-scraper/
 
 ## 🛠️ How It Works
 
-1. **Turndown.js Integration**: Automatically loads the HTML-to-Markdown converter
-2. **Smart Content Detection**: Finds questions, choices, and feedback elements
-3. **LaTeX/KaTeX Processing**: Converts mathematical formulas to Markdown format
-4. **Answer Preservation**: Maintains your selected answers and input responses
-5. **Local File Download**: Creates and downloads the Markdown file directly
+1. **Turndown.js Integration**: Bundled HTML-to-Markdown converter (no external dependencies)
+2. **Context Menu Integration**: Right-click menu appears only on IITM assignment pages
+3. **Smart Content Detection**: Finds questions, choices, and feedback elements
+4. **LaTeX/KaTeX Processing**: Converts mathematical formulas to Markdown format
+5. **Answer Preservation**: Maintains your selected answers and input responses
+6. **Local File Download**: Creates and downloads the Markdown file directly
 
 ## 🎯 Supported Content
 

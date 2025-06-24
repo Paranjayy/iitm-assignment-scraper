@@ -1,16 +1,11 @@
 (function() {
-    // --- Step 1: Check if Turndown library is loaded, if not, load it ---
-    if (typeof TurndownService === 'undefined') {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/turndown/dist/turndown.js';
-        document.head.appendChild(script);
-        script.onload = runExporter;
-        script.onerror = () => alert('Failed to load the converter library. Please check your internet connection or ad-blocker.');
-    } else {
-        runExporter();
-    }
-
+    // Turndown library is now pre-loaded via content script
     function runExporter() {
+        // Check if TurndownService is available
+        if (typeof TurndownService === 'undefined') {
+            alert('⚠️ Turndown library not loaded. Please reload the page and try again.');
+            return;
+        }
         console.log('IITM Scraper Extension: Running...');
         
         const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
@@ -110,4 +105,7 @@
         URL.revokeObjectURL(url);
         console.log(`✅ Export complete! Saved to ${filename}`);
     }
+    
+    // Start the export process
+    runExporter();
 })(); 

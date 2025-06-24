@@ -5,7 +5,8 @@
   "description": "Adds a button to download IITM online degree assignments as a clean Markdown file.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://seek.onlinedegree.iitm.ac.in/*"
@@ -13,6 +14,12 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://seek.onlinedegree.iitm.ac.in/*"],
+      "js": ["turndown.js"]
+    }
+  ],
   "action": {
     "default_icon": {
       "16": "images/icon16.png",
