@@ -20,7 +20,8 @@
 
         let markdown = "";
         const assignmentTitle = document.querySelector('.modules__content-head-title')?.innerText.trim() || 'Graded Assignment';
-        const courseTitle = document.querySelector('app-header .header .content .course-title')?.innerText.trim() || 'Course';
+        // Broaden selector to find course title more reliably
+        const courseTitle = (document.querySelector('.course-title') || document.querySelector('app-header .header .content .course-title'))?.innerText.trim() || 'Course';
         
         // Use the assignment title as the main header
         markdown += `# ${assignmentTitle}\n\n`;
@@ -144,8 +145,10 @@
         const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        // Name the file EXACTLY after the extracted assignment title
-        const filename = `${assignmentTitle}.md`.replace(/[^\w\s-]/g, '').trim() || 'assignment.md';
+        // Name the file: [Course Name] - [Assignment Title].md
+        const cleanCourse = courseTitle.replace(/[^\w\s-]/g, '').trim();
+        const cleanAssignment = assignmentTitle.replace(/[^\w\s-]/g, '').trim();
+        const filename = `${cleanCourse} - ${cleanAssignment}.md` || 'assignment.md';
         a.href = url;
         a.download = filename;
         document.body.appendChild(a);
