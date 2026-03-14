@@ -7,7 +7,15 @@
         }
         console.log('IITM Scraper Extension: Running...');
         
-        const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+        const turndownService = new TurndownService({ 
+            headingStyle: 'atx', 
+            codeBlockStyle: 'fenced',
+            emDelimiter: '*'
+        });
+
+        // Add support for tables if turndown-plugin-gfm is not available, 
+        // but usually we want to keep the HTML for tables if turndown fails them.
+        turndownService.keep(['table', 'thead', 'tbody', 'tr', 'th', 'td']);
 
         turndownService.addRule('katex-math', {
             filter: (node) => node.nodeName === 'SPAN' && node.classList.contains('katex'),
@@ -33,7 +41,7 @@
                     const tabName = btn.innerText.trim();
                     markdown += `## ${tabName}\n\n`;
                     btn.click();
-                    await new Promise(r => setTimeout(r, 1200)); // Increased wait for reliability
+                    await new Promise(r => setTimeout(r, 1500)); 
                     
                     const leftContent = document.querySelector('.left-content');
                     if (leftContent) {
@@ -61,9 +69,10 @@
                     const questionTextElement = block.querySelector('.qt-question');
                     if (questionTextElement) {
                         const questionClone = questionTextElement.cloneNode(true);
+                        // Only remove choices container to avoid double-processing
                         questionClone.querySelector('.qt-choices')?.remove();
                         processElement(questionClone);
-                        markdown += turndownService.turndown(questionClone.innerHTML).replace(/\n\n\n/g, '\n\n') + '\n';
+                        markdown += turndownService.turndown(questionClone.innerHTML).replace(/\n\n\n/g, '\n\n') + '\n\n';
                     }
                     
                     const choices = block.querySelectorAll('.gcb-mcq-choice');
@@ -73,14 +82,14 @@
                             const label = choice.querySelector('label');
                             if (!label) return;
                             
-                            let cleanLabelText = label.innerText;
-                            cleanLabelText = cleanLabelText.replace(/xxxxxxxxxx/g, '').trim();
-                            // Remove leading line number like "1", "2" etc if it's exactly one number at the start
-                            cleanLabelText = cleanLabelText.replace(/^\d+\s+/, '');
+                            const labelClone = label.cloneNode(true);
+                            processElement(labelClone); // Process potential code/tables inside labels
                             
                             const isChecked = input ? input.checked : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
-                            markdown += `${checkbox} ${cleanLabelText}\n`;
+                            // Use turndown for labels to preserve their internal structure (bold, code, etc)
+                            const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim();
+                            markdown += `${checkbox} ${labelMarkdown}\n`;
                         });
                         markdown += '\n';
                     }
@@ -104,16 +113,9 @@
                         const acceptedAnswersContent = feedbackElement.querySelector('div.faculty-answer');
                         if (acceptedAnswersHeader && acceptedAnswersContent) {
                             markdown += `\n**${acceptedAnswersHeader.innerText.trim()}**\n\n`;
-                            if (acceptedAnswersContent.querySelectorAll('label').length > 0) {
-                                acceptedAnswersContent.querySelectorAll('label').forEach(label => {
-                                    let cleanAns = label.innerText.replace(/xxxxxxxxxx/g, '').trim();
-                                    cleanAns = cleanAns.replace(/^\d+\s+/, '');
-                                    markdown += `* ${cleanAns}\n`;
-                                });
-                            } else { 
-                                markdown += `> ${acceptedAnswersContent.innerText.trim()}\n`;
-                            }
-                            markdown += '\n';
+                            const ansClone = acceptedAnswersContent.cloneNode(true);
+                            processElement(ansClone);
+                            markdown += turndownService.turndown(ansClone.innerHTML).trim() + '\n\n';
                         }
                     }
                     markdown += `---\n\n`;
@@ -124,54 +126,48 @@
         }
 
         function processElement(root) {
-            // 1. Reconstruct Code Blocks FIRST (CRITICAL)
-            root.querySelectorAll('.CodeMirror, pre, .code-container, .programming-question-container pre').forEach(container => {
+            // 1. Correct Code Block Extraction (Handle Indentation and Line Numbers)
+            root.querySelectorAll('.CodeMirror, .programming-question-container pre, code-container').forEach(container => {
                 let lines = [];
-                // Look for structured lines
-                const lineElements = container.querySelectorAll('.CodeMirror-line, pre');
+                // CodeMirror specific: lines are often in .CodeMirror-line
+                const cmLines = container.querySelectorAll('.CodeMirror-line');
                 
-                if (lineElements.length > 1) {
-                    lineElements.forEach(lineEl => {
-                        let text = lineEl.innerText.replace(/\u200B/g, ''); 
-                        text = text.replace(/xxxxxxxxxx/g, '');
-                        // Remove leading number if it looks like a line number
-                        text = text.replace(/^\s*\d+\s+/, '');
+                if (cmLines.length > 0) {
+                    cmLines.forEach(lineEl => {
+                        // Use textContent to preserve whitespace/indentation!
+                        let text = lineEl.textContent.replace(/\u200B/g, ''); 
                         lines.push(text);
                     });
                 } else {
-                    // Flattened text reconstruction
-                    let raw = container.innerText.trim().replace(/xxxxxxxxxx/g, '');
-                    // Try splitting by digits that are likely line numbers: "1 code 2 code"
-                    const parts = raw.split(/\s+(?=\d+\s+)/);
-                    if (parts.length > 1) {
-                        parts.forEach(p => lines.push(p.replace(/^\d+\s+/, '').trim()));
-                    } else {
-                        // Just split by newlines if they exist
-                        lines = raw.split('\n').map(l => l.replace(/^\d+\s+/, '').trim());
-                    }
+                    // Fallback for regular pre/code
+                    const rawText = container.innerText;
+                    // If it has line numbers at start of lines like "1  def foo():"
+                    const linesWithNumbers = rawText.split('\n');
+                    lines = linesWithNumbers.map(line => line.replace(/^\s*\d+\s+/, ''));
                 }
 
-                const cleanCode = lines.join('\n').trim() || container.innerText.replace(/xxxxxxxxxx/g, '').trim();
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
-                code.textContent = cleanCode;
+                code.textContent = lines.join('\n').trim();
                 pre.appendChild(code);
                 if (container.parentNode) container.parentNode.replaceChild(pre, container);
             });
 
-            // 2. Clean markers from remaining non-code elements
-            root.querySelectorAll('span, div, p').forEach(el => {
-                // Skip if inside a pre (though we already replaced them, safety first)
-                if (el.closest('pre')) return;
-                
-                if (el.innerText && el.innerText.includes('xxxxxxxxxx') && el.children.length === 0) {
-                    el.innerText = el.innerText.replace(/xxxxxxxxxx/g, '').trim();
+            // 2. Remove line numbers and artifacts that are NOT in code blocks
+            root.querySelectorAll('.CodeMirror-linenumber, .linenumber').forEach(el => el.remove());
+            
+            // 3. Clean xxxxxxxxxx markers from all text nodes
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            let node;
+            while (node = walker.nextNode()) {
+                if (node.textContent.includes('xxxxxxxxxx')) {
+                    node.textContent = node.textContent.replace(/xxxxxxxxxx/g, '');
                 }
-            });
+            }
         }
 
         function finalizeExport() {
-            // Final nuke for xxxxxxxxxx just in case
+            // Final safety filter
             let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
             
             const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
@@ -186,11 +182,9 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            console.log(`✅ Export complete! Saved to ${filename}`);
         }
 
         scrapeContent();
     }
-    
     runExporter();
 })();
