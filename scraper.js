@@ -19,9 +19,12 @@
         });
 
         let markdown = "";
-        const assignmentTitle = document.querySelector('.modules__content-head-title > div')?.innerText.trim() || 'Graded Assignment';
+        const assignmentTitle = document.querySelector('.modules__content-head-title')?.innerText.trim() || 'Graded Assignment';
         const courseTitle = document.querySelector('app-header .header .content .course-title')?.innerText.trim() || 'Course';
-        markdown += `# ${assignmentTitle} - (${courseTitle})\n\n`;
+        
+        // Use the assignment title as the main header
+        markdown += `# ${assignmentTitle}\n\n`;
+        markdown += `> **Course:** ${courseTitle}\n\n`;
 
         const headerInfo = document.querySelector('.assessment-top-info');
         if (headerInfo) markdown += `> ${headerInfo.innerText.trim().replace(/\n\s*\n/g, '\n> ')}\n\n`;
@@ -42,8 +45,53 @@
             if (questionTextElement) {
                 const questionClone = questionTextElement.cloneNode(true);
                 questionClone.querySelector('.qt-choices')?.remove();
+
+                // Robustly reconstruct code blocks to handle multiline CodeMirror and clear artifacts
+                questionClone.querySelectorAll('.CodeMirror, pre, .code-container').forEach(container => {
+                    let lines = [];
+                    // Try to find individual line elements first (the clean way)
+                    const lineElements = container.querySelectorAll('.CodeMirror-line, pre');
+                    
+                    if (lineElements.length > 0 && lineElements[0].innerText.trim() !== container.innerText.trim()) {
+                        lineElements.forEach(lineEl => {
+                            let text = lineEl.innerText.replace(/\u200B/g, ''); // Remove zero-width spaces
+                            // Clean up artifacts from each line
+                            text = text.replace(/^xxxxxxxxxx\s*/, '');
+                            text = text.replace(/^\d+\s+/, ''); // Remove leading line numbers if they exist
+                            lines.push(text);
+                        });
+                    } else {
+                        // Fallback for flattened text (what usually causes "unaligned" blocks)
+                        let fullText = container.innerText.trim();
+                        // Remove the global xxxxxxxxxx artifact
+                        fullText = fullText.replace(/^xxxxxxxxxx\s*/g, '').replace(/xxxxxxxxxx/g, '');
+                        
+                        // Split by line number patterns: "1 code 2 code" -> ["code", "code"]
+                        // This regex looks for digits surrounded by spaces or at boundaries
+                        const splitLines = fullText.split(/(?<=^|\s)\d+(?=\s)/);
+                        if (splitLines.length > 1) {
+                            lines = splitLines.map(l => l.trim()).filter(l => l.length > 0);
+                        } else {
+                            lines = fullText.split('\n').map(l => l.trim());
+                        }
+                    }
+
+                    const cleanCode = lines.length > 0 ? lines.join('\n') : container.innerText.replace(/xxxxxxxxxx/g, '').trim();
+                    const pre = document.createElement('pre');
+                    const code = document.createElement('code');
+                    code.textContent = cleanCode;
+                    pre.appendChild(code);
+                    
+                    // Replace the messy container with our clean pre/code block
+                    if (container.parentNode) {
+                        container.parentNode.replaceChild(pre, container);
+                    }
+                });
+
                 let questionHtml = questionClone.innerHTML.replace(/ /g, ' ');
-                markdown += turndownService.turndown(questionHtml).replace(/\n\n\n/g, '\n\n') + '\n';
+                let questionMarkdown = turndownService.turndown(questionHtml).replace(/\n\n\n/g, '\n\n');
+                
+                markdown += questionMarkdown + '\n';
             }
             
             const choices = block.querySelectorAll('.gcb-mcq-choice');
@@ -96,7 +144,8 @@
         const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        const filename = `${assignmentTitle} - ${courseTitle}.md`.replace(/[^\w\s-.]/g, ' ').replace(/[\s-]+/g, '_');
+        // Name the file EXACTLY after the extracted assignment title
+        const filename = `${assignmentTitle}.md`.replace(/[^\w\s-]/g, '').trim() || 'assignment.md';
         a.href = url;
         a.download = filename;
         document.body.appendChild(a);
