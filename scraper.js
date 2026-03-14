@@ -189,7 +189,13 @@
         }
 
         function finalizeExport() {
-            const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+            // Final brute-force cleanup of any remaining artifacts in the markdown string
+            let finalMarkdown = markdown.replace(/xxxxxxxxxx\s*\d*/g, '');
+            // Optional: clean up leading "1", "2" etc that are followed by spaces at start of lines, 
+            // but be careful not to break actual list numbering. 
+            // Only targeting ones inside the MCQ label context if possible.
+
+            const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             const cleanCourse = courseTitle.replace(/[^\w\s-]/g, '').trim();
