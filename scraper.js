@@ -21,7 +21,13 @@
             filter: (node) => node.nodeName === 'SPAN' && node.classList.contains('katex'),
             replacement: (content, node) => {
                 const tex = node.querySelector('annotation[encoding="application/x-tex"]');
-                return tex ? `$${tex.textContent.trim()}$` : '';
+                if (!tex) return content;
+                
+                // Check if it's a block math element or contains newlines
+                const isBlock = node.closest('.math.block') || tex.textContent.includes('\\begin') || tex.textContent.includes('\\\\');
+                const math = tex.textContent.trim();
+                
+                return isBlock ? `\n\n$$\n${math}\n$$\n\n` : `$${math}$`;
             }
         });
 
@@ -93,7 +99,7 @@
                             const labelClone = label.cloneNode(true);
                             processNode(labelClone);
                             
-                            const isChecked = input ? input.checked : false;
+                            const isChecked = input ? (input.checked || input.hasAttribute('checked')) : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
                             const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim().replace(/\n/g, '  \n    ');
                             markdown += `${checkbox} ${labelMarkdown}\n`;
@@ -108,14 +114,29 @@
 
                     const feedbackElement = block.querySelector('.qt-feedback[role="alert"]');
                     if (feedbackElement) {
+                        // Status and Score
                         const statusHeader = feedbackElement.querySelector('h3.feedback-header');
                         if (statusHeader) {
-                            const statusText = statusHeader.querySelector('span.correct')?.innerText.trim();
+                            const statusSpans = Array.from(statusHeader.querySelectorAll('span.correct'));
+                            const statusText = statusSpans[0]?.innerText.trim();
                             if (statusText) markdown += `**Status:** ${statusText}\n`;
-                            const scoreText = Array.from(statusHeader.querySelectorAll('span.correct')).map(s => s.innerText.trim()).join(' ');
-                            if (scoreText && !scoreText.includes(statusText)) markdown += `**Score:** ${scoreText}\n`;
+                            
+                            const scoreSpan = statusSpans.find(s => s.innerText.toLowerCase().includes('score'));
+                            if (scoreSpan) markdown += `**Score:** ${scoreSpan.innerText.trim()}\n`;
                         }
 
+                        // Detailed Feedback / Explanation
+                        const feedbackHeaders = Array.from(feedbackElement.querySelectorAll('h3.feedback-header')).filter(h => h.innerText.includes('Feedback:'));
+                        feedbackHeaders.forEach(h => {
+                            let contentDiv = h.nextElementSibling;
+                            if (contentDiv && contentDiv.tagName === 'DIV' && !contentDiv.classList.contains('faculty-answer')) {
+                                const feedClone = contentDiv.cloneNode(true);
+                                processNode(feedClone);
+                                markdown += `\n**Feedback:**\n${turndownService.turndown(feedClone.innerHTML).trim()}\n\n`;
+                            }
+                        });
+
+                        // Accepted Answers
                         const acceptedAnswersContent = feedbackElement.querySelector('div.faculty-answer');
                         if (acceptedAnswersContent) {
                             markdown += `\n**Accepted Answers:**\n\n`;
@@ -136,7 +157,7 @@
          */
         function processNode(root) {
             // 1. Remove obvious artifact elements first
-            root.querySelectorAll('.CodeMirror-linenumber, .linenumber, .CodeMirror-measure, .CodeMirror-cursors, .CodeMirror-hscrollbar, .CodeMirror-vscrollbar').forEach(el => el.remove());
+            root.querySelectorAll('.CodeMirror-linenumber, .linenumber, .CodeMirror-measure, .CodeMirror-cursors, .CodeMirror-hscrollbar, .CodeMirror-vscrollbar, noscript').forEach(el => el.remove());
 
             // 2. Specialized Code Block Reconstruction
             root.querySelectorAll('.CodeMirror, .codemirror-container-readonly, .code-container, pre').forEach(container => {
@@ -149,24 +170,23 @@
                 if (cmLines.length > 0) {
                     cmLines.forEach(lineEl => {
                         // Use textContent to preserve all spacing
-                        let text = lineEl.textContent.replace(/\u200B/g, '');
-                        // Remove leading xxxxxxxxxx if present
-                        text = text.replace(/^xxxxxxxxxx\s*/, '');
+                        let text = lineEl.textContent.replace(/\u200B/g, ''); // Remove zero-width spaces
+                        text = text.replace(/xxxxxxxxxx/g, '');
                         lines.push(text);
                     });
                 } else {
                     // Fallback for non-cm pre tags or raw containers
                     let raw = container.textContent;
-                    // Detect and remove leading line numbers from raw text if they exist (e.g. "1 def foo")
-                    lines = raw.split('\n').map(l => l.replace(/^xxxxxxxxxx/, '').replace(/^\s*\d+\s{2,}/, ''));
+                    lines = raw.split('\n').map(l => l.replace(/xxxxxxxxxx/g, '').replace(/^\s*\d+\s{2,}/, ''));
                 }
 
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
+                const lang = container.getAttribute('data-mode') || 'python';
+                code.className = `language-${lang}`;
                 code.textContent = lines.join('\n').trimEnd();
                 pre.appendChild(code);
                 
-                // Replace the complex container with a simple pre/code
                 if (container.parentNode) {
                     container.parentNode.replaceChild(pre, container);
                 }
