@@ -19,7 +19,7 @@
         });
 
         let markdown = "";
-        const assignmentTitle = document.querySelector('.modules__content-head-title')?.innerText.trim() || 'Graded Assignment';
+        const assignmentTitle = (document.querySelector('.assignment-title') || document.querySelector('.modules__content-head-title'))?.innerText.trim() || 'Graded Assignment';
         const courseTitle = (document.querySelector('.course-title') || document.querySelector('app-header .header .content .course-title'))?.innerText.trim() || 'Course';
         
         markdown += `# ${assignmentTitle}\n\n`;
