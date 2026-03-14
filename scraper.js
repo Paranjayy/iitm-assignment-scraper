@@ -5,7 +5,7 @@
             alert('⚠️ Turndown library not loaded. Please reload the page and try again.');
             return;
         }
-        console.log('IITM Scraper Extension: Running...');
+        console.log('IITM Scraper Extension: Initializing...');
         
         const turndownService = new TurndownService({ 
             headingStyle: 'atx', 
@@ -13,10 +13,10 @@
             emDelimiter: '*'
         });
 
-        // Add support for tables if turndown-plugin-gfm is not available, 
-        // but usually we want to keep the HTML for tables if turndown fails them.
+        // Ensure tables are preserved as HTML for better layout
         turndownService.keep(['table', 'thead', 'tbody', 'tr', 'th', 'td']);
 
+        // Custom rule to handle Katex math
         turndownService.addRule('katex-math', {
             filter: (node) => node.nodeName === 'SPAN' && node.classList.contains('katex'),
             replacement: (content, node) => {
@@ -41,14 +41,13 @@
                     const tabName = btn.innerText.trim();
                     markdown += `## ${tabName}\n\n`;
                     btn.click();
-                    await new Promise(r => setTimeout(r, 1500)); 
+                    await new Promise(r => setTimeout(r, 2000)); // Safer wait for dynamic content
                     
                     const leftContent = document.querySelector('.left-content');
                     if (leftContent) {
                         const clone = leftContent.cloneNode(true);
-                        processElement(clone);
-                        const tabMd = turndownService.turndown(clone.innerHTML);
-                        markdown += (tabMd || "*(No content found)*") + '\n\n';
+                        processNode(clone);
+                        markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
                     }
                     markdown += '---\n\n';
                 }
@@ -69,9 +68,8 @@
                     const questionTextElement = block.querySelector('.qt-question');
                     if (questionTextElement) {
                         const questionClone = questionTextElement.cloneNode(true);
-                        // Only remove choices container to avoid double-processing
                         questionClone.querySelector('.qt-choices')?.remove();
-                        processElement(questionClone);
+                        processNode(questionClone);
                         markdown += turndownService.turndown(questionClone.innerHTML).replace(/\n\n\n/g, '\n\n') + '\n\n';
                     }
                     
@@ -83,12 +81,11 @@
                             if (!label) return;
                             
                             const labelClone = label.cloneNode(true);
-                            processElement(labelClone); // Process potential code/tables inside labels
+                            processNode(labelClone);
                             
                             const isChecked = input ? input.checked : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
-                            // Use turndown for labels to preserve their internal structure (bold, code, etc)
-                            const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim();
+                            const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim().replace(/\n/g, '  \n    ');
                             markdown += `${checkbox} ${labelMarkdown}\n`;
                         });
                         markdown += '\n';
@@ -109,12 +106,11 @@
                             if (scoreText && !scoreText.includes(statusText)) markdown += `**Score:** ${scoreText}\n`;
                         }
 
-                        const acceptedAnswersHeader = feedbackElement.querySelector('h3.faculty-answer');
                         const acceptedAnswersContent = feedbackElement.querySelector('div.faculty-answer');
-                        if (acceptedAnswersHeader && acceptedAnswersContent) {
-                            markdown += `\n**${acceptedAnswersHeader.innerText.trim()}**\n\n`;
+                        if (acceptedAnswersContent) {
+                            markdown += `\n**Accepted Answers:**\n\n`;
                             const ansClone = acceptedAnswersContent.cloneNode(true);
-                            processElement(ansClone);
+                            processNode(ansClone);
                             markdown += turndownService.turndown(ansClone.innerHTML).trim() + '\n\n';
                         }
                     }
@@ -125,49 +121,68 @@
             finalizeExport();
         }
 
-        function processElement(root) {
-            // 1. Correct Code Block Extraction (Handle Indentation and Line Numbers)
-            root.querySelectorAll('.CodeMirror, .programming-question-container pre, code-container').forEach(container => {
+        /**
+         * Cleans a node of artifacts and reconstructs specialized elements like CodeMirror
+         */
+        function processNode(root) {
+            // 1. Remove obvious artifact elements first
+            root.querySelectorAll('.CodeMirror-linenumber, .linenumber, .CodeMirror-measure, .CodeMirror-cursors, .CodeMirror-hscrollbar, .CodeMirror-vscrollbar').forEach(el => el.remove());
+
+            // 2. Specialized Code Block Reconstruction
+            root.querySelectorAll('.CodeMirror, .codemirror-container-readonly, .code-container, pre').forEach(container => {
+                // If this is a nested element we already processed, skip
+                if (container.querySelector('code')) return;
+
                 let lines = [];
-                // CodeMirror specific: lines are often in .CodeMirror-line
                 const cmLines = container.querySelectorAll('.CodeMirror-line');
                 
                 if (cmLines.length > 0) {
                     cmLines.forEach(lineEl => {
-                        // Use textContent to preserve whitespace/indentation!
-                        let text = lineEl.textContent.replace(/\u200B/g, ''); 
+                        // Use textContent to preserve all spacing
+                        let text = lineEl.textContent.replace(/\u200B/g, '');
+                        // Remove leading xxxxxxxxxx if present
+                        text = text.replace(/^xxxxxxxxxx\s*/, '');
                         lines.push(text);
                     });
                 } else {
-                    // Fallback for regular pre/code
-                    const rawText = container.innerText;
-                    // If it has line numbers at start of lines like "1  def foo():"
-                    const linesWithNumbers = rawText.split('\n');
-                    lines = linesWithNumbers.map(line => line.replace(/^\s*\d+\s+/, ''));
+                    // Fallback for non-cm pre tags or raw containers
+                    let raw = container.textContent;
+                    // Detect and remove leading line numbers from raw text if they exist (e.g. "1 def foo")
+                    lines = raw.split('\n').map(l => l.replace(/^xxxxxxxxxx/, '').replace(/^\s*\d+\s{2,}/, ''));
                 }
 
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
-                code.textContent = lines.join('\n').trim();
+                code.textContent = lines.join('\n').trimEnd();
                 pre.appendChild(code);
-                if (container.parentNode) container.parentNode.replaceChild(pre, container);
+                
+                // Replace the complex container with a simple pre/code
+                if (container.parentNode) {
+                    container.parentNode.replaceChild(pre, container);
+                }
             });
 
-            // 2. Remove line numbers and artifacts that are NOT in code blocks
-            root.querySelectorAll('.CodeMirror-linenumber, .linenumber').forEach(el => el.remove());
-            
-            // 3. Clean xxxxxxxxxx markers from all text nodes
+            // 3. Clean xxxxxxxxxx from all remaining text nodes
             const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
             let node;
-            while (node = walker.nextNode()) {
-                if (node.textContent.includes('xxxxxxxxxx')) {
-                    node.textContent = node.textContent.replace(/xxxxxxxxxx/g, '');
+            const textNodes = [];
+            while (node = walker.nextNode()) textNodes.push(node);
+            
+            textNodes.forEach(t => {
+                if (t.textContent.includes('xxxxxxxxxx')) {
+                    t.textContent = t.textContent.replace(/xxxxxxxxxx/g, '');
                 }
-            }
+            });
+            
+            // 4. Ensure tables have borders for better rendering in some viewers
+            root.querySelectorAll('table').forEach(table => {
+                table.setAttribute('border', '1');
+                table.style.borderCollapse = 'collapse';
+            });
         }
 
         function finalizeExport() {
-            // Final safety filter
+            // Final safety filter for any escaped markers
             let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
             
             const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
@@ -175,16 +190,18 @@
             const a = document.createElement('a');
             const cleanCourse = courseTitle.replace(/[^\w\s-]/g, '').trim();
             const cleanAssignment = assignmentTitle.replace(/[^\w\s-]/g, '').trim();
-            const filename = `${cleanCourse} - ${cleanAssignment}.md` || 'assignment.md';
+            const filename = `${cleanCourse} - ${cleanAssignment}.md`;
             a.href = url;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+            console.log(`✅ Export complete: ${filename}`);
         }
 
         scrapeContent();
     }
+    
     runExporter();
 })();

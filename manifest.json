@@ -17,7 +17,8 @@
   "content_scripts": [
     {
       "matches": ["https://seek.onlinedegree.iitm.ac.in/*"],
-      "js": ["turndown.js"]
+      "js": ["turndown.js", "content.js"],
+      "css": ["inject_button.css"]
     }
   ],
   "action": {

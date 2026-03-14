@@ -16,6 +16,13 @@ function executeScaper(tabId) {
   });
 }
 
+// Listen for messages from content scripts
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'triggerScraper' && sender.tab) {
+        executeScaper(sender.tab.id);
+    }
+});
+
 // Listen for the extension's icon to be clicked
 chrome.action.onClicked.addListener((tab) => {
   executeScaper(tab.id);

@@ -1,0 +1,69 @@
+.iitm-scraper-btn {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6e8efb, #a777e3);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 999999;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(5px);
+}
+
+.iitm-scraper-btn:hover {
+    transform: scale(1.1) translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+    background: linear-gradient(135deg, #7e9efb, #b787e3);
+}
+
+.iitm-scraper-btn:active {
+    transform: scale(0.95);
+}
+
+.iitm-scraper-btn svg {
+    width: 28px;
+    height: 28px;
+    fill: white;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+}
+
+.iitm-scraper-tooltip {
+    position: absolute;
+    right: 70px;
+    background: rgba(30, 30, 30, 0.9);
+    color: white;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.2s ease;
+    transform: translateX(10px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.iitm-scraper-btn:hover .iitm-scraper-tooltip {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Animation for the button appearance */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px) scale(0.8); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.iitm-scraper-btn {
+    animation: fadeInUp 0.5s ease-out forwards;
+}
