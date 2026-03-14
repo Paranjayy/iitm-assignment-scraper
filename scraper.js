@@ -1,7 +1,6 @@
 (function() {
     // Turndown library is now pre-loaded via content script
     function runExporter() {
-        // Check if TurndownService is available
         if (typeof TurndownService === 'undefined') {
             alert('⚠️ Turndown library not loaded. Please reload the page and try again.');
             return;
@@ -26,7 +25,6 @@
         markdown += `> **Course:** ${courseTitle}\n\n`;
 
         async function scrapeContent() {
-            // Check if this is a GRPA (Programming Assignment) with tabs
             const tabButtons = document.querySelectorAll('app-tab-bar .tab-item');
             
             if (tabButtons.length > 0) {
@@ -34,17 +32,15 @@
                 for (const btn of tabButtons) {
                     const tabName = btn.innerText.trim();
                     markdown += `## ${tabName}\n\n`;
-                    
-                    // Click to load tab content
                     btn.click();
-                    // Small delay to allow content to render
-                    await new Promise(r => setTimeout(r, 1000));
+                    await new Promise(r => setTimeout(r, 1200)); // Increased wait for reliability
                     
                     const leftContent = document.querySelector('.left-content');
                     if (leftContent) {
                         const clone = leftContent.cloneNode(true);
                         processElement(clone);
-                        markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                        const tabMd = turndownService.turndown(clone.innerHTML);
+                        markdown += (tabMd || "*(No content found)*") + '\n\n';
                     }
                     markdown += '---\n\n';
                 }
@@ -77,15 +73,14 @@
                             const label = choice.querySelector('label');
                             if (!label) return;
                             
-                            // Get labels without nuking the actual text
                             let cleanLabelText = label.innerText;
-                            // Remove xxxxxxxxxx and leading numbers only
-                            cleanLabelText = cleanLabelText.replace(/xxxxxxxxxx\s*/g, '');
-                            cleanLabelText = cleanLabelText.replace(/^\s*\d+\s+/, '');
+                            cleanLabelText = cleanLabelText.replace(/xxxxxxxxxx/g, '').trim();
+                            // Remove leading line number like "1", "2" etc if it's exactly one number at the start
+                            cleanLabelText = cleanLabelText.replace(/^\d+\s+/, '');
                             
                             const isChecked = input ? input.checked : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
-                            markdown += `${checkbox} ${cleanLabelText.trim()}\n`;
+                            markdown += `${checkbox} ${cleanLabelText}\n`;
                         });
                         markdown += '\n';
                     }
@@ -111,7 +106,9 @@
                             markdown += `\n**${acceptedAnswersHeader.innerText.trim()}**\n\n`;
                             if (acceptedAnswersContent.querySelectorAll('label').length > 0) {
                                 acceptedAnswersContent.querySelectorAll('label').forEach(label => {
-                                    markdown += `* ${label.innerText.replace(/xxxxxxxxxx\s*/g, '').replace(/^\s*\d+\s+/, '').trim()}\n`;
+                                    let cleanAns = label.innerText.replace(/xxxxxxxxxx/g, '').trim();
+                                    cleanAns = cleanAns.replace(/^\d+\s+/, '');
+                                    markdown += `* ${cleanAns}\n`;
                                 });
                             } else { 
                                 markdown += `> ${acceptedAnswersContent.innerText.trim()}\n`;
@@ -127,49 +124,54 @@
         }
 
         function processElement(root) {
-            // Clean markers from general elements
-            root.querySelectorAll('span, div').forEach(el => {
-                if (el.innerText && el.innerText.includes('xxxxxxxxxx') && el.children.length === 0) {
-                    el.innerText = el.innerText.replace(/xxxxxxxxxx\s*\d*\s*/g, '');
-                }
-            });
-
-            // Robustly reconstruct code blocks
+            // 1. Reconstruct Code Blocks FIRST (CRITICAL)
             root.querySelectorAll('.CodeMirror, pre, .code-container, .programming-question-container pre').forEach(container => {
                 let lines = [];
+                // Look for structured lines
                 const lineElements = container.querySelectorAll('.CodeMirror-line, pre');
                 
-                if (lineElements.length > 0) {
+                if (lineElements.length > 1) {
                     lineElements.forEach(lineEl => {
                         let text = lineEl.innerText.replace(/\u200B/g, ''); 
-                        text = text.replace(/^xxxxxxxxxx\s*/, '');
-                        text = text.replace(/^\d+\s+/, ''); 
+                        text = text.replace(/xxxxxxxxxx/g, '');
+                        // Remove leading number if it looks like a line number
+                        text = text.replace(/^\s*\d+\s+/, '');
                         lines.push(text);
                     });
                 } else {
-                    let fullText = container.innerText.trim();
-                    fullText = fullText.replace(/xxxxxxxxxx/g, '');
-                    const splitLines = fullText.split(/\s+(?=\d+\s+)/);
-                    if (splitLines.length > 1) {
-                         splitLines.forEach(l => {
-                             lines.push(l.replace(/^\d+\s+/, '').trim());
-                         });
+                    // Flattened text reconstruction
+                    let raw = container.innerText.trim().replace(/xxxxxxxxxx/g, '');
+                    // Try splitting by digits that are likely line numbers: "1 code 2 code"
+                    const parts = raw.split(/\s+(?=\d+\s+)/);
+                    if (parts.length > 1) {
+                        parts.forEach(p => lines.push(p.replace(/^\d+\s+/, '').trim()));
                     } else {
-                        lines = fullText.split('\n').map(l => l.trim().replace(/^xxxxxxxxxx\s*/, ''));
+                        // Just split by newlines if they exist
+                        lines = raw.split('\n').map(l => l.replace(/^\d+\s+/, '').trim());
                     }
                 }
 
-                const cleanCode = lines.join('\n').trim();
+                const cleanCode = lines.join('\n').trim() || container.innerText.replace(/xxxxxxxxxx/g, '').trim();
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
                 code.textContent = cleanCode;
                 pre.appendChild(code);
                 if (container.parentNode) container.parentNode.replaceChild(pre, container);
             });
+
+            // 2. Clean markers from remaining non-code elements
+            root.querySelectorAll('span, div, p').forEach(el => {
+                // Skip if inside a pre (though we already replaced them, safety first)
+                if (el.closest('pre')) return;
+                
+                if (el.innerText && el.innerText.includes('xxxxxxxxxx') && el.children.length === 0) {
+                    el.innerText = el.innerText.replace(/xxxxxxxxxx/g, '').trim();
+                }
+            });
         }
 
         function finalizeExport() {
-            // Final safety cleanup ONLY for the specific artifact string, don't over-clean
+            // Final nuke for xxxxxxxxxx just in case
             let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
             
             const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
@@ -184,9 +186,11 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+            console.log(`✅ Export complete! Saved to ${filename}`);
         }
 
         scrapeContent();
     }
+    
     runExporter();
 })();
