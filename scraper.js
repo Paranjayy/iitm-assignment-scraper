@@ -77,13 +77,15 @@
                             const label = choice.querySelector('label');
                             if (!label) return;
                             
-                            const labelClone = label.cloneNode(true);
-                            processLabel(labelClone); // Specialized label cleaning
+                            // Get labels without nuking the actual text
+                            let cleanLabelText = label.innerText;
+                            // Remove xxxxxxxxxx and leading numbers only
+                            cleanLabelText = cleanLabelText.replace(/xxxxxxxxxx\s*/g, '');
+                            cleanLabelText = cleanLabelText.replace(/^\s*\d+\s+/, '');
                             
                             const isChecked = input ? input.checked : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
-                            const labelMarkdown = turndownService.turndown(labelClone.innerHTML).replace(/\n/g, ' ').trim();
-                            markdown += `${checkbox} ${labelMarkdown}\n`;
+                            markdown += `${checkbox} ${cleanLabelText.trim()}\n`;
                         });
                         markdown += '\n';
                     }
@@ -109,7 +111,7 @@
                             markdown += `\n**${acceptedAnswersHeader.innerText.trim()}**\n\n`;
                             if (acceptedAnswersContent.querySelectorAll('label').length > 0) {
                                 acceptedAnswersContent.querySelectorAll('label').forEach(label => {
-                                    markdown += `* ${turndownService.turndown(label).trim()}\n`;
+                                    markdown += `* ${label.innerText.replace(/xxxxxxxxxx\s*/g, '').replace(/^\s*\d+\s+/, '').trim()}\n`;
                                 });
                             } else { 
                                 markdown += `> ${acceptedAnswersContent.innerText.trim()}\n`;
@@ -124,21 +126,8 @@
             finalizeExport();
         }
 
-        function processLabel(label) {
-            // Clean up xxxxxxxxxx and line numbers from MCQ labels
-            label.querySelectorAll('span, div').forEach(el => {
-                if (el.innerText.includes('xxxxxxxxxx')) {
-                    el.remove();
-                }
-            });
-            let text = label.innerText;
-            text = text.replace(/xxxxxxxxxx\s*/g, '');
-            text = text.replace(/^\s*\d+\s+/, ''); // Remove leading line number
-            label.innerText = text.trim();
-        }
-
         function processElement(root) {
-            // Remove MCQ markers/artifacts from mixed content
+            // Clean markers from general elements
             root.querySelectorAll('span, div').forEach(el => {
                 if (el.innerText && el.innerText.includes('xxxxxxxxxx') && el.children.length === 0) {
                     el.innerText = el.innerText.replace(/xxxxxxxxxx\s*\d*\s*/g, '');
@@ -148,24 +137,18 @@
             // Robustly reconstruct code blocks
             root.querySelectorAll('.CodeMirror, pre, .code-container, .programming-question-container pre').forEach(container => {
                 let lines = [];
-                // Look for structured lines first
-                const lineElements = container.querySelectorAll('.CodeMirror-line, .CodeMirror-linenumber, pre, code > div');
+                const lineElements = container.querySelectorAll('.CodeMirror-line, pre');
                 
-                if (lineElements.length > 0 && lineElements.length > 3) { // Use detailed reconstruction if many elements found
+                if (lineElements.length > 0) {
                     lineElements.forEach(lineEl => {
-                        if (lineEl.classList.contains('CodeMirror-linenumber')) return; // Skip line numbers
                         let text = lineEl.innerText.replace(/\u200B/g, ''); 
                         text = text.replace(/^xxxxxxxxxx\s*/, '');
                         text = text.replace(/^\d+\s+/, ''); 
                         lines.push(text);
                     });
                 } else {
-                    // Fallback for flattened text: try to split by numbers that look like line numbers
                     let fullText = container.innerText.trim();
-                    fullText = fullText.replace(/^xxxxxxxxxx\s*/g, '').replace(/xxxxxxxxxx/g, '');
-                    
-                    // Split if we find "1 code 2 code 3 code" pattern
-                    // This matches a number at the start or after a space, followed by code
+                    fullText = fullText.replace(/xxxxxxxxxx/g, '');
                     const splitLines = fullText.split(/\s+(?=\d+\s+)/);
                     if (splitLines.length > 1) {
                          splitLines.forEach(l => {
@@ -176,25 +159,19 @@
                     }
                 }
 
-                const cleanCode = lines.length > 0 ? lines.join('\n') : container.innerText.replace(/xxxxxxxxxx/g, '').trim();
+                const cleanCode = lines.join('\n').trim();
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
                 code.textContent = cleanCode;
                 pre.appendChild(code);
-                
-                if (container.parentNode) {
-                    container.parentNode.replaceChild(pre, container);
-                }
+                if (container.parentNode) container.parentNode.replaceChild(pre, container);
             });
         }
 
         function finalizeExport() {
-            // Final brute-force cleanup of any remaining artifacts in the markdown string
-            let finalMarkdown = markdown.replace(/xxxxxxxxxx\s*\d*/g, '');
-            // Optional: clean up leading "1", "2" etc that are followed by spaces at start of lines, 
-            // but be careful not to break actual list numbering. 
-            // Only targeting ones inside the MCQ label context if possible.
-
+            // Final safety cleanup ONLY for the specific artifact string, don't over-clean
+            let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
+            
             const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -207,13 +184,9 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            console.log(`✅ Export complete! Saved to ${filename}`);
         }
 
-        // Start the process
         scrapeContent();
     }
-    
-    // Start the export process
     runExporter();
 })();
