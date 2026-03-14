@@ -26,8 +26,18 @@
         });
 
         let markdown = "";
-        const assignmentTitle = (document.querySelector('.assignment-title') || document.querySelector('.modules__content-head-title'))?.innerText.trim() || 'Graded Assignment';
-        const courseTitle = (document.querySelector('.course-title') || document.querySelector('app-header .header .content .course-title'))?.innerText.trim() || 'Course';
+        // Priority to assignment-title within the content block for GRPA pages
+        const assignmentTitle = (
+            document.querySelector('.left-content .assignment-title') || 
+            document.querySelector('.assignment-title') || 
+            document.querySelector('.modules__content-head-title')
+        )?.innerText.trim() || 'Graded Assignment';
+        
+        const courseTitle = (
+            document.querySelector('.course-title') || 
+            document.querySelector('app-header .header .content .course-title') ||
+            document.querySelector('.modules__content-head-title div:first-child')
+        )?.innerText.trim() || 'Course';
         
         markdown += `# ${assignmentTitle}\n\n`;
         markdown += `> **Course:** ${courseTitle}\n\n`;
