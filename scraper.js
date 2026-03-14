@@ -38,7 +38,7 @@
                     // Click to load tab content
                     btn.click();
                     // Small delay to allow content to render
-                    await new Promise(r => setTimeout(r, 800));
+                    await new Promise(r => setTimeout(r, 1000));
                     
                     const leftContent = document.querySelector('.left-content');
                     if (leftContent) {
@@ -76,9 +76,13 @@
                             const input = choice.querySelector('input');
                             const label = choice.querySelector('label');
                             if (!label) return;
+                            
+                            const labelClone = label.cloneNode(true);
+                            processLabel(labelClone); // Specialized label cleaning
+                            
                             const isChecked = input ? input.checked : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
-                            const labelMarkdown = turndownService.turndown(label).replace(/\n/g, ' ').trim();
+                            const labelMarkdown = turndownService.turndown(labelClone.innerHTML).replace(/\n/g, ' ').trim();
                             markdown += `${checkbox} ${labelMarkdown}\n`;
                         });
                         markdown += '\n';
@@ -120,42 +124,53 @@
             finalizeExport();
         }
 
+        function processLabel(label) {
+            // Clean up xxxxxxxxxx and line numbers from MCQ labels
+            label.querySelectorAll('span, div').forEach(el => {
+                if (el.innerText.includes('xxxxxxxxxx')) {
+                    el.remove();
+                }
+            });
+            let text = label.innerText;
+            text = text.replace(/xxxxxxxxxx\s*/g, '');
+            text = text.replace(/^\s*\d+\s+/, ''); // Remove leading line number
+            label.innerText = text.trim();
+        }
+
         function processElement(root) {
-            // Remove MCQ markers/artifacts from MCQ labels if they exist
-            root.querySelectorAll('span, div, label').forEach(el => {
-                if (el.innerText && el.innerText.includes('xxxxxxxxxx')) {
-                    // Try to remove just the text node if it's mixed
-                    for (let node of el.childNodes) {
-                        if (node.nodeType === 3 && node.textContent.includes('xxxxxxxxxx')) {
-                            node.textContent = node.textContent.replace(/xxxxxxxxxx\s*\d*\s*/g, '');
-                        }
-                    }
-                    // If element strictly contains xxxxxxxxxx, clear it
-                    if (el.children.length === 0 && el.innerText.trim().match(/^xxxxxxxxxx/)) {
-                        el.innerText = el.innerText.replace(/xxxxxxxxxx\s*\d*\s*/g, '');
-                    }
+            // Remove MCQ markers/artifacts from mixed content
+            root.querySelectorAll('span, div').forEach(el => {
+                if (el.innerText && el.innerText.includes('xxxxxxxxxx') && el.children.length === 0) {
+                    el.innerText = el.innerText.replace(/xxxxxxxxxx\s*\d*\s*/g, '');
                 }
             });
 
             // Robustly reconstruct code blocks
             root.querySelectorAll('.CodeMirror, pre, .code-container, .programming-question-container pre').forEach(container => {
                 let lines = [];
-                const lineElements = container.querySelectorAll('.CodeMirror-line, pre, code > div');
+                // Look for structured lines first
+                const lineElements = container.querySelectorAll('.CodeMirror-line, .CodeMirror-linenumber, pre, code > div');
                 
-                if (lineElements.length > 0 && lineElements[0].innerText.trim() !== container.innerText.trim()) {
+                if (lineElements.length > 0 && lineElements.length > 3) { // Use detailed reconstruction if many elements found
                     lineElements.forEach(lineEl => {
+                        if (lineEl.classList.contains('CodeMirror-linenumber')) return; // Skip line numbers
                         let text = lineEl.innerText.replace(/\u200B/g, ''); 
                         text = text.replace(/^xxxxxxxxxx\s*/, '');
                         text = text.replace(/^\d+\s+/, ''); 
                         lines.push(text);
                     });
                 } else {
+                    // Fallback for flattened text: try to split by numbers that look like line numbers
                     let fullText = container.innerText.trim();
                     fullText = fullText.replace(/^xxxxxxxxxx\s*/g, '').replace(/xxxxxxxxxx/g, '');
                     
-                    const splitLines = fullText.split(/(?<=^|\s)\d+(?=\s)/);
+                    // Split if we find "1 code 2 code 3 code" pattern
+                    // This matches a number at the start or after a space, followed by code
+                    const splitLines = fullText.split(/\s+(?=\d+\s+)/);
                     if (splitLines.length > 1) {
-                        lines = splitLines.map(l => l.trim()).filter(l => l.length > 0);
+                         splitLines.forEach(l => {
+                             lines.push(l.replace(/^\d+\s+/, '').trim());
+                         });
                     } else {
                         lines = fullText.split('\n').map(l => l.trim().replace(/^xxxxxxxxxx\s*/, ''));
                     }
