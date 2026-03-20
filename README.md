@@ -1,3 +1,4 @@
+![GitHub Profile Views](https://gitviews.com/repo/paranjayy/iit-assignment-scraper.svg?color=%23f76707&label-color=black)
 # 🎓 IITM Assignment Scraper Chrome Extension
 
 A Chrome extension that converts IIT Madras online degree assignments into clean, readable Markdown files with a single click. No more copy-pasting from the DevTools console!
