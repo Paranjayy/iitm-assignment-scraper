@@ -37,29 +37,33 @@
     };
     updateBodyClasses();
 
+    const handleUIToggle = (action) => {
+        if (!action) return;
+        if (action === 'toggleCleanMode') {
+            isCleanMode = !isCleanMode;
+            localStorage.setItem('iitm-clean-mode-enabled', isCleanMode);
+        } else if (action === 'toggleFocusBar') {
+            isFocusBarVisible = !isFocusBarVisible;
+            localStorage.setItem('iitm-focus-bar-visible', isFocusBarVisible);
+        } else if (action === 'toggleNotesBtn') {
+            isNotesBtnVisible = !isNotesBtnVisible;
+            localStorage.setItem('iitm-notes-btn-visible', isNotesBtnVisible);
+        } else if (action === 'toggleProgress') {
+            isProgressVisible = !isProgressVisible;
+            localStorage.setItem('iitm-progress-visible', isProgressVisible);
+        }
+        updateBodyClasses();
+    };
+
     // Listen for UI Toggles from Context Menu
     if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
         chrome.runtime.onMessage.addListener((msg) => {
-            if (msg.action === 'toggleCleanMode') {
-                isCleanMode = !isCleanMode;
-                localStorage.setItem('iitm-clean-mode-enabled', isCleanMode);
-                updateBodyClasses();
-            } else if (msg.action === 'toggleFocusBar') {
-                isFocusBarVisible = !isFocusBarVisible;
-                localStorage.setItem('iitm-focus-bar-visible', isFocusBarVisible);
-                updateBodyClasses();
-            } else if (msg.action === 'toggleNotesBtn') {
-                isNotesBtnVisible = !isNotesBtnVisible;
-                localStorage.setItem('iitm-notes-btn-visible', isNotesBtnVisible);
-                updateBodyClasses();
-            } else if (msg.action === 'toggleProgress') {
-                isProgressVisible = !isProgressVisible;
-                localStorage.setItem('iitm-progress-visible', isProgressVisible);
-                updateBodyClasses();
-            } else if (msg.action === 'sendToNotes') {
+            if (msg.action === 'sendToNotes') {
                 saveNote(msg.selectionText);
                 const notes = document.getElementById('iitm-notes-drawer');
                 if (notes) notes.style.display = 'flex';
+            } else {
+                handleUIToggle(msg.action);
             }
         });
     }
@@ -598,8 +602,16 @@
                     <span class="type" style="${item.isSub ? 'background:rgba(21,101,192,0.1);color:#1e88e5;' : 'background:rgba(255,255,255,0.05);'}">${item.typeLabel}</span>
                 `;
                 div.onclick = () => {
-                    const clickable = item.el.closest('button') || item.el;
-                    clickable.click();
+                    if (item.actionId) {
+                        // Handle Command Palette Actions
+                        if (item.actionId === 'exportSyllabus') chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'exportSyllabus' });
+                        else if (item.actionId === 'exportNotes') document.getElementById('export-notes-btn')?.click();
+                        else if (item.actionId === 'unlockPage') chrome.runtime.sendMessage({ action: 'unlockPage' });
+                        else handleUIToggle(item.actionId);
+                    } else {
+                        const clickable = item.el.closest('button') || item.el;
+                        clickable.click();
+                    }
                     spotlight.style.display = 'none';
                     input.value = '';
                 };
@@ -657,6 +669,28 @@
                         typeLabel: label,
                         color: color
                     });
+                });
+            });
+
+            // ADD CORE ACTIONS (Command Palette Style)
+            const actions = [
+                { text: 'Toggle Clean UI (Nuke Everything)', typeLabel: 'Action', el: null, action: 'toggleCleanMode' },
+                { text: 'Export Course Syllabus to Markdown', typeLabel: 'Action', el: null, action: 'exportSyllabus' },
+                { text: 'Unlock Editor and Copy-Paste', typeLabel: 'Action', el: null, action: 'unlockPage' },
+                { text: 'Toggle Study Progress Card', typeLabel: 'Action', el: null, action: 'toggleProgress' },
+                { text: 'Export Study Notes as Markdown', typeLabel: 'Action', el: null, action: 'exportNotes' },
+                { text: 'Toggle Study Focus Bar', typeLabel: 'Action', el: null, action: 'toggleFocusBar' }
+            ];
+
+            actions.forEach(act => {
+                allItems.push({
+                    text: act.text,
+                    breadcrumb: 'System Command',
+                    el: null,
+                    isSub: true,
+                    typeLabel: act.typeLabel,
+                    color: '#c2185b',
+                    actionId: act.action
                 });
             });
             
@@ -803,17 +837,15 @@
     const injectGlobalTimer = () => {
         // Detect if we are on an assignment or lecture page
         const isAssignmentPage = !!(
-            document.querySelector('.assignment-title') || 
-            document.querySelector('.assessment-top-info') || 
+            document.querySelector('.assignment-title, .assessment-top-info, app-quizzes') || 
             window.location.href.includes('/assessment') || 
-            window.location.href.includes('/quiz') ||
-            document.querySelector('app-quizzes')
+            window.location.href.includes('/quiz')
         );
         
         const isLecturePage = !!(
-            document.querySelector('video') || 
+            document.querySelector('video, iframe, app-video-player, .transcript-container') || 
             window.location.href.includes('/course_unit/') ||
-            (document.querySelector('.units__subitems-selected') && document.querySelector('.units__subitems-selected').innerText.toLowerCase().includes('video'))
+            (document.activeElement && document.activeElement.tagName === 'IFRAME')
         );
         
         const hasFocusBar = !!document.getElementById('iitm-focus-bar');
@@ -824,12 +856,12 @@
         const timer = document.createElement('div');
         timer.id = 'iitm-global-timer';
         timer.style.cssText = `
-            position: fixed; top: 12px; right: 80px; z-index: 1000;
+            position: fixed; top: 12px; right: 260px; z-index: 10001;
             background: rgba(30, 30, 30, 0.95); color: #fff;
             padding: 8px 16px; border-radius: 40px; font-family: 'Inter', sans-serif;
             font-size: 14px; font-weight: 700; border: 1px solid rgba(255,255,255,0.1);
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 12px;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px); transition: 0.3s;
         `;
         
         const format = (s) => String(Math.floor(s)).padStart(2, '0');
