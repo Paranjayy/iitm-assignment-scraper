@@ -191,6 +191,11 @@
                     </div>
                     <button id="close-notes-drawer" style="background:none; border:none; color:white; cursor:pointer; font-size:18px;">&times;</button>
                 </div>
+                <!-- MANUAL INPUT BOX -->
+                <div style="padding:15px; border-bottom:1px solid #eee; background:white;">
+                    <textarea id="manual-note-input" placeholder="Type a manual note here..." style="width:100%; height:60px; border:1px solid #ddd; border-radius:8px; padding:8px; font-family:inherit; font-size:12px; outline:none; resize:none;"></textarea>
+                    <button id="add-manual-note-btn" class="iitm-btn" style="margin-top:8px; width:100%; border-radius:8px; padding:8px;">➕ Add Quick Note</button>
+                </div>
                 <div id="notes-list" class="notes-list custom-scrollbar"></div>
                 <div class="notes-footer">
                     <button id="export-notes-btn" class="iitm-btn" title="Download all as Markdown file">📤 Export MD</button>
@@ -199,6 +204,20 @@
             `;
             document.body.appendChild(drawer);
             document.getElementById('close-notes-drawer').onclick = () => drawer.style.display = 'none';
+            document.getElementById('add-manual-note-btn').onclick = () => {
+                const input = document.getElementById('manual-note-input');
+                const text = input.value.trim();
+                if (text) {
+                    saveNote(text);
+                    input.value = '';
+                }
+            };
+            document.getElementById('manual-note-input').onkeydown = (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    document.getElementById('add-manual-note-btn').click();
+                }
+            };
             document.getElementById('clear-notes-btn').onclick = () => {
                 if (confirm('Permanently delete ALL saved notes?')) {
                     savedNotes = [];
