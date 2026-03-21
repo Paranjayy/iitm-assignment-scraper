@@ -8,6 +8,7 @@
     let isFocusBarVisible = localStorage.getItem('iitm-focus-bar-visible') !== 'false';
     let isNotesBtnVisible = localStorage.getItem('iitm-notes-btn-visible') !== 'false';
     let isProgressVisible = localStorage.getItem('iitm-progress-visible') !== 'false';
+    let isSpotlightOpen = false;
     let savedNotes = JSON.parse(localStorage.getItem('iitm-saved-notes') || '[]');
     let sidebarClosedThisSession = false;
     let autoCloseAttempts = 0;
@@ -100,18 +101,20 @@
 
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 e.preventDefault();
-                const isHidden = spotlight.style.display === 'none' || !spotlight.style.display;
-                spotlight.style.display = isHidden ? 'flex' : 'none';
-                if (isHidden) {
+                isSpotlightOpen = !isSpotlightOpen;
+                spotlight.style.display = isSpotlightOpen ? 'flex' : 'none';
+                if (isSpotlightOpen) {
                     const input = document.getElementById('spotlight-input');
                     if (input) {
                         input.focus();
-                        // Trigger an initial "empty" search to show recent or all items
                         input.dispatchEvent(new Event('input'));
                     }
                 }
             }
-            if (e.key === 'Escape') spotlight.style.display = 'none';
+            if (e.key === 'Escape') {
+                isSpotlightOpen = false;
+                spotlight.style.display = 'none';
+            }
         });
 
         document.addEventListener('click', (e) => {
@@ -122,6 +125,7 @@
                 const isToggleBtn = !!e.target.closest('#iitm-header-search');
                 
                 if (!isClickInside && !isToggleBtn) {
+                    isSpotlightOpen = false;
                     spotlight.style.display = 'none';
                 }
             }
@@ -321,6 +325,7 @@
         btn.onclick = () => {
             const spotlight = document.getElementById('iitm-spotlight');
             if (spotlight) {
+                isSpotlightOpen = true;
                 spotlight.style.display = 'flex';
                 document.getElementById('spotlight-input').focus();
             }
@@ -422,11 +427,15 @@
 
     // 2. SPOTLIGHT SEARCH (Cmd+K)
     const injectSpotlight = () => {
-        if (document.getElementById('iitm-spotlight')) return;
+        const existing = document.getElementById('iitm-spotlight');
+        if (existing) {
+            existing.style.display = isSpotlightOpen ? 'flex' : 'none';
+            return;
+        }
 
         const spotlight = document.createElement('div');
         spotlight.id = 'iitm-spotlight';
-        spotlight.style.display = 'none';
+        spotlight.style.display = isSpotlightOpen ? 'flex' : 'none';
         spotlight.innerHTML = `
             <div class="spotlight-box">
                 <div class="spotlight-header">
@@ -618,6 +627,7 @@
                         const clickable = item.el.closest('button') || item.el;
                         clickable.click();
                     }
+                    isSpotlightOpen = false;
                     spotlight.style.display = 'none';
                     input.value = '';
                 };
