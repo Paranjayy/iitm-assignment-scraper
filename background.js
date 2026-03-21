@@ -34,6 +34,14 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["all"],
     documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
   });
+
+  // Capture selection (Only shows when something is highlighted)
+  chrome.contextMenus.create({
+    id: "sendToNotes",
+    title: "📝 Send Seleced to Notes",
+    contexts: ["selection"],
+    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+  });
 });
 
 // Helper to unlock editors and events
@@ -191,5 +199,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     unlockPage(tab.id);
   } else if (["toggleCleanMode", "toggleFocusBar", "toggleNotesBtn", "toggleProgress"].includes(info.menuItemId)) {
     chrome.tabs.sendMessage(tab.id, { action: info.menuItemId });
+  } else if (info.menuItemId === "sendToNotes") {
+    chrome.tabs.sendMessage(tab.id, { action: "sendToNotes", selectionText: info.selectionText });
   }
 });

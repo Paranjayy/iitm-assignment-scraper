@@ -8,9 +8,27 @@
     let isFocusBarVisible = localStorage.getItem('iitm-focus-bar-visible') !== 'false';
     let isNotesBtnVisible = localStorage.getItem('iitm-notes-btn-visible') !== 'false';
     let isProgressVisible = localStorage.getItem('iitm-progress-visible') !== 'false';
+    let savedNotes = JSON.parse(localStorage.getItem('iitm-saved-notes') || '[]');
     let sidebarClosedThisSession = false;
     let autoCloseAttempts = 0;
     
+    const saveNote = (text) => {
+        const week = document.querySelector('.units__items-selected .units__items-title')?.innerText.trim() || 'General';
+        const unit = document.querySelector('.units__subitems-selected .units__subitems-title span')?.innerText.trim() || 
+                     document.querySelector('.assignment-title')?.innerText.trim() || 'Lesson';
+        const video = document.querySelector('video');
+        const timestamp = video ? Math.floor(video.currentTime) : null;
+        
+        const note = {
+            id: Date.now(),
+            text, week, unit, url: window.location.href, timestamp,
+            date: new Date().toLocaleString()
+        };
+        savedNotes.push(note);
+        localStorage.setItem('iitm-saved-notes', JSON.stringify(savedNotes));
+        renderNotes();
+    };
+
     const updateBodyClasses = () => {
         body.classList.toggle('iitm-clean-mode', isCleanMode);
         body.classList.toggle('iitm-hide-focus', !isFocusBarVisible);
@@ -25,17 +43,24 @@
             if (msg.action === 'toggleCleanMode') {
                 isCleanMode = !isCleanMode;
                 localStorage.setItem('iitm-clean-mode-enabled', isCleanMode);
+                updateBodyClasses();
             } else if (msg.action === 'toggleFocusBar') {
                 isFocusBarVisible = !isFocusBarVisible;
                 localStorage.setItem('iitm-focus-bar-visible', isFocusBarVisible);
+                updateBodyClasses();
             } else if (msg.action === 'toggleNotesBtn') {
                 isNotesBtnVisible = !isNotesBtnVisible;
                 localStorage.setItem('iitm-notes-btn-visible', isNotesBtnVisible);
+                updateBodyClasses();
             } else if (msg.action === 'toggleProgress') {
                 isProgressVisible = !isProgressVisible;
                 localStorage.setItem('iitm-progress-visible', isProgressVisible);
+                updateBodyClasses();
+            } else if (msg.action === 'sendToNotes') {
+                saveNote(msg.selectionText);
+                const notes = document.getElementById('iitm-notes-drawer');
+                if (notes) notes.style.display = 'flex';
             }
-            updateBodyClasses();
         });
     }
 
@@ -147,9 +172,94 @@
 
         // Quick Notes
         container.appendChild(createBtn('iitm-toggle-notes', '📝', 'Quick Notes', () => {
-            const notes = document.getElementById('iitm-notes-drawer');
-            if (notes) notes.style.display = notes.style.display === 'none' ? 'block' : 'none';
+            let notes = document.getElementById('iitm-notes-drawer');
+            if (notes) {
+                notes.style.display = notes.style.display === 'none' ? 'flex' : 'none';
+            } else {
+                injectNotesDrawer();
+            }
         }));
+
+        const injectNotesDrawer = () => {
+            const drawer = document.createElement('div');
+            drawer.id = 'iitm-notes-drawer';
+            drawer.innerHTML = `
+                <div class="notes-header">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span>📝 Study Notes</span>
+                        <div style="font-size:10px; background:#1e88e5; color:white; padding:2px 6px; border-radius:10px;" id="notes-count">0</div>
+                    </div>
+                    <button id="close-notes-drawer" style="background:none; border:none; color:white; cursor:pointer; font-size:18px;">&times;</button>
+                </div>
+                <div id="notes-list" class="notes-list custom-scrollbar"></div>
+                <div class="notes-footer">
+                    <button id="export-notes-btn" class="iitm-btn" title="Download all as Markdown file">📤 Export MD</button>
+                    <button id="clear-notes-btn" class="iitm-btn" style="background:#a0332d; border-color:#d32f2f;" title="Clear ALL notes permanently">🗑️ Clear All</button>
+                </div>
+            `;
+            document.body.appendChild(drawer);
+            document.getElementById('close-notes-drawer').onclick = () => drawer.style.display = 'none';
+            document.getElementById('clear-notes-btn').onclick = () => {
+                if (confirm('Permanently delete ALL saved notes?')) {
+                    savedNotes = [];
+                    localStorage.setItem('iitm-saved-notes', '[]');
+                    renderNotes();
+                }
+            };
+            document.getElementById('export-notes-btn').onclick = () => {
+                if (savedNotes.length === 0) return alert('No notes to export!');
+                let md = `# Study Notes - ${new Date().toLocaleDateString()}\n\n`;
+                savedNotes.forEach(n => {
+                    md += `### [${n.week} | ${n.unit}](${n.toLink || n.url})\n`;
+                    if (n.timestamp) md += `*Time: ${Math.floor(n.timestamp/60)}:${(n.timestamp%60).toString().padStart(2,'0')}*\n`;
+                    md += `> ${n.text}\n\n`;
+                });
+                const blob = new Blob([md], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `IITM_Study_Notes_${Date.now()}.md`;
+                a.click();
+            };
+            renderNotes();
+        };
+
+        const renderNotes = () => {
+            const list = document.getElementById('notes-list');
+            const count = document.getElementById('notes-count');
+            if (!list) return;
+            
+            list.innerHTML = '';
+            count.innerText = savedNotes.length;
+
+            if (savedNotes.length === 0) {
+                list.innerHTML = `<div style="padding:40px; text-align:center; color:#888; font-size:13px;">No notes saved yet.<br><br>Highlight text & Right-click<br>"Send to Notes"</div>`;
+                return;
+            }
+
+            [...savedNotes].reverse().forEach((note, idx) => {
+                const div = document.createElement('div');
+                div.className = 'note-item';
+                div.innerHTML = `
+                    <div style="font-size:9px; color:#1e88e5; font-weight:800; text-transform:uppercase; margin-bottom:4px; display:flex; justify-content:space-between;">
+                        <span>${note.week} • ${note.unit}</span>
+                        <span class="delete-note" data-id="${note.id}" style="cursor:pointer; color:#999;">&times;</span>
+                    </div>
+                    <div style="font-size:13px; color:#333; line-height:1.4; font-weight:500;">${note.text}</div>
+                    <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+                        <a href="${note.url}" target="_blank" style="font-size:10px; color:#666; text-decoration:none;">🔗 Open Source</a>
+                        ${note.timestamp ? `<span style="font-size:10px; background:#f0f0f0; padding:2px 6px; border-radius:4px; color:#444;">⏱️ ${Math.floor(note.timestamp/60)}:${(note.timestamp%60).toString().padStart(2,'0')}</span>` : ''}
+                    </div>
+                `;
+                div.querySelector('.delete-note').onclick = (e) => {
+                    e.preventDefault();
+                    savedNotes = savedNotes.filter(n => n.id != note.id);
+                    localStorage.setItem('iitm-saved-notes', JSON.stringify(savedNotes));
+                    renderNotes();
+                };
+                list.appendChild(div);
+            });
+        };
 
         // 1. REPOSITIONED EXACTLY LEFT OF SPOTLIGHT
         const spotlight = document.getElementById('iitm-header-search');
@@ -367,6 +477,7 @@
             .filter-chip.active { background: #1e88e5; border-color: #1e88e5; color: white; }
 
             /* MASTER CLEAN MODE - Hides EVERYTHING at once */
+            /* MASTER CLEAN MODE - Hides EVERYTHING at once */
             body.iitm-clean-mode #iitm-header-utils,
             body.iitm-clean-mode #iitm-header-search,
             body.iitm-clean-mode .iitm-scraper-btn,
@@ -384,11 +495,33 @@
             body.iitm-hide-progress #iitm-progress-card { display: none !important; }
             
             #iitm-notes-drawer {
-                position: fixed; top: 80px; right: 20px; width: 340px; height: 480px;
-                background: white; border: 1px solid #ddd; border-radius: 16px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.2); z-index: 10005; display: none;
-                flex-direction: column; overflow: hidden; font-family: 'Inter';
+                position: fixed; top: 0; right: 0; width: 360px; height: 100vh;
+                background: white; border-left: 1px solid #ddd;
+                box-shadow: -10px 0 50px rgba(0,0,0,0.1); z-index: 10005; display: none;
+                flex-direction: column; overflow: hidden; font-family: 'Inter', sans-serif;
             }
+            .notes-header { 
+                background: #121212; color: white; padding: 20px; 
+                display: flex; justify-content: space-between; align-items: center;
+                font-weight: 800; letter-spacing: 0.5px;
+            }
+            .notes-list { flex: 1; overflow-y: auto; padding: 15px; background: #fafafa; }
+            .note-item { 
+                background: white; border: 1px solid #eee; padding: 12px; 
+                border-radius: 12px; margin-bottom: 12px; position: relative;
+                transition: 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+            }
+            .note-item:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+            .notes-footer { 
+                padding: 15px; border-top: 1px solid #eee; display: flex; gap: 10px;
+                background: white; box-shadow: 0 -10px 20px rgba(0,0,0,0.02);
+            }
+            .iitm-btn {
+                flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #1e88e5;
+                background: white; color: #1e88e5; cursor: pointer; font-size: 11px;
+                font-weight: 800; text-transform: uppercase; transition: 0.2s;
+            }
+            .iitm-btn:hover { background: #1e88e5; color: white; }
             .breadcrumb { font-size: 10px; color: #555; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
             .spotlight-item:hover .breadcrumb { color: #1565c0; }
         `;
