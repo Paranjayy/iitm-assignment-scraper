@@ -100,7 +100,7 @@
     transition: all 0.2s ease;
     transform: translateX(10px);
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: system-ui, sans-serif;
     border: 1px solid rgba(255,255,255,0.1);
 }
 
@@ -136,7 +136,7 @@
     align-items: center;
     gap: 10px;
     transition: 0.2s;
-    font-family: 'Inter', sans-serif;
+    font-family: sans-serif;
 }
 
 .ai-option:hover {

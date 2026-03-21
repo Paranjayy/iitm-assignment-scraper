@@ -1,13 +1,4 @@
 (function() {
-    // 1. INJECT GOOGLE FONTS (Inter)
-    if (!document.getElementById('iitm-font-link')) {
-        const link = document.createElement('link');
-        link.id = 'iitm-font-link';
-        link.rel = 'stylesheet';
-        link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap';
-        document.head.appendChild(link);
-    }
-
     console.log('IITM Explorer: Enhancing Productivity...');
 
     const body = document.body;
@@ -109,7 +100,7 @@
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.85); color: white; z-index: 20000;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            font-family: 'Inter', sans-serif; backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
         `;
         overlay.innerHTML = `
             <div style="font-size: 24px; font-weight: 800; margin-bottom: 20px;">📦 Exporting All Content</div>
@@ -507,7 +498,7 @@
         btn.onmouseleave = () => { btn.style.background = 'rgba(0,0,0,0.05)'; };
         
         btn.innerHTML = `
-            <span style="font-size: 10px; font-weight: 800; color: #666; font-family: 'Inter';">⌘ K</span>
+            <span style="font-size: 10px; font-weight: 800; color: #666;">⌘ K</span>
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         `;
         
@@ -551,7 +542,7 @@
                 display: flex; justify-content: space-between; align-items: center;
                 background: #1e1e1e; color: #fff; padding: 8px 16px;
                 border-radius: 8px 8px 0 0; margin-top: 10px;
-                font-family: 'Inter', sans-serif; border: 1px solid #333; border-bottom: none;
+                font-family: sans-serif; border: 1px solid #333; border-bottom: none;
             }
             #iitm-ref-panel {
                 display: none; position: fixed; right: 20px; top: 100px;
@@ -626,8 +617,7 @@
             document.head.appendChild(styleTag);
         }
         styleTag.innerText = `
-            /* GLOBAL TYPOGRAPHY */
-            * { font-family: 'Inter', -apple-system, sans-serif !important; }
+            /* GLOBAL OVERRIDES */
 
             #iitm-spotlight {
                 position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -638,7 +628,6 @@
                 position: relative; width: 700px; background: #121212; 
                 border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); 
                 overflow: hidden; box-shadow: 0 50px 100px rgba(0,0,0,0.9); 
-                font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 pointer-events: auto;
             }
             .spotlight-header { background: rgba(40,40,40,0.8); border-bottom: 1px solid rgba(255,255,255,0.1); }
@@ -1044,7 +1033,7 @@
         timer.style.cssText = `
             position: fixed; top: 12px; right: 260px; z-index: 10001;
             background: rgba(30, 30, 30, 0.95); color: #fff;
-            padding: 8px 16px; border-radius: 40px; font-family: 'Inter', sans-serif;
+            padding: 8px 16px; border-radius: 40px;
             font-size: 14px; font-weight: 700; border: 1px solid rgba(255,255,255,0.1);
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 12px;
             backdrop-filter: blur(10px); transition: 0.3s;
@@ -1097,7 +1086,7 @@
             card.id = 'iitm-progress-card';
             card.style.cssText = `
                 margin: 15px; padding: 15px; border-radius: 12px;
-                font-family: 'Inter', sans-serif; position: relative; z-index: 10;
+                position: relative; z-index: 10;
             `;
             list.insertBefore(card, list.firstChild);
         }
