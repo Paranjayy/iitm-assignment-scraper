@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IITM Assignment Scraper",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Adds a button to download IITM online degree assignments as a clean Markdown file.",
   "permissions": [
     "activeTab",
@@ -9,16 +9,21 @@
     "contextMenus"
   ],
   "host_permissions": [
-    "https://seek.onlinedegree.iitm.ac.in/*"
+    "https://seek.onlinedegree.iitm.ac.in/*",
+    "*://score-checker-379619009600.asia-south1.run.app/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://seek.onlinedegree.iitm.ac.in/*"],
-      "js": ["turndown.js", "content.js"],
-      "css": ["inject_button.css"]
+      "matches": [
+        "*://seek.onlinedegree.iitm.ac.in/*",
+        "*://score-checker-379619009600.asia-south1.run.app/*"
+      ],
+      "js": ["turndown.js", "content.js", "portal_enhancements.js"],
+      "css": ["inject_button.css"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -33,5 +38,14 @@
     "16": "images/icon16.png",
     "48": "images/icon48.png",
     "128": "images/icon128.png"
+  },
+  "commands": {
+    "unlock_page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Unlock Editor and Copy-Paste on current page"
+    }
   }
-} 
+}

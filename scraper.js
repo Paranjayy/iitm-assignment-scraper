@@ -1,4 +1,4 @@
-(function() {
+(function () {
     // Turndown library is now pre-loaded via content script
     function runExporter() {
         if (typeof TurndownService === 'undefined') {
@@ -6,9 +6,9 @@
             return;
         }
         console.log('IITM Scraper Extension: Initializing...');
-        
-        const turndownService = new TurndownService({ 
-            headingStyle: 'atx', 
+
+        const turndownService = new TurndownService({
+            headingStyle: 'atx',
             codeBlockStyle: 'fenced',
             emDelimiter: '*'
         });
@@ -22,65 +22,294 @@
             replacement: (content, node) => {
                 const tex = node.querySelector('annotation[encoding="application/x-tex"]');
                 if (!tex) return content;
-                
+
                 // Check if it's a block math element or contains newlines
                 const isBlock = node.closest('.math.block') || tex.textContent.includes('\\begin') || tex.textContent.includes('\\\\');
                 const math = tex.textContent.trim();
-                
+
                 return isBlock ? `\n\n$$\n${math}\n$$\n\n` : `$${math}$`;
             }
         });
 
         let markdown = "";
-        // Priority to assignment-title within the content block for GRPA pages
-        const assignmentTitle = (
-            document.querySelector('.left-content .assignment-title') || 
-            document.querySelector('.assignment-title') || 
+        
+        let assignmentTitle = (
+            document.querySelector('.left-content .assignment-title') ||
+            document.querySelector('.assignment-title') ||
             document.querySelector('.modules__content-head-title')
         )?.innerText.trim() || 'Graded Assignment';
-        
-        const courseTitle = (
-            document.querySelector('.course-title') || 
+
+        let courseTitle = (
+            document.querySelector('.course-title') ||
             document.querySelector('app-header .header .content .course-title') ||
             document.querySelector('.modules__content-head-title div:first-child')
         )?.innerText.trim() || 'Course';
-        
+
+        // Custom titles for Score Checker
+        if (window.location.hostname.includes('score-checker')) {
+            assignmentTitle = document.querySelector('.navbar-brand')?.innerText.trim() || 'Score Checker';
+            courseTitle = 'IITM Degree';
+            
+            // Check if we can refine the title for detailed views
+            if (window.location.pathname.includes('view_score')) {
+                // Look for course code in the page text (common pattern: CS1002, HS1001, etc.)
+                const courseMatch = document.body.innerText.match(/[A-Z]{2}\d{4}/);
+                if (courseMatch) assignmentTitle = `${courseMatch[0]} - Detailed Results`;
+                else assignmentTitle += ' - Detailed Results';
+            }
+            
+            if (window.__scraperMode === 'consolidateAll') {
+                assignmentTitle = 'Consolidated Detailed Scores';
+            }
+        }
+
         markdown += `# ${assignmentTitle}\n\n`;
         markdown += `> **Course:** ${courseTitle}\n\n`;
 
         async function scrapeContent() {
-            const tabButtons = document.querySelectorAll('app-tab-bar .tab-item');
-            
-            if (tabButtons.length > 0) {
-                console.log("GRPA detected, scraping all tabs...");
-                for (const btn of tabButtons) {
-                    const tabName = btn.innerText.trim();
-                    markdown += `## ${tabName}\n\n`;
-                    btn.click();
-                    await new Promise(r => setTimeout(r, 2000)); // Safer wait for dynamic content
+            // --- Score Checker & Syllabus Handling ---
+            if (window.location.hostname.includes('score-checker')) {
+                const mode = window.__scraperMode || 'single';
+                if (mode === 'consolidateAll') {
+                    await scrapeScoreCheckerAll();
+                    return;
+                }
+
+                console.log('IITM Scraper: Processing Score Checker...');
+                
+                const alerts = Array.from(document.querySelectorAll('.alert')).map(a => a.innerText.trim());
+                if (alerts.length > 0) {
+                    markdown += `> ${alerts.join('\n> ')}\n\n`;
+                }
+
+                const table = document.querySelector('table');
+                if (table) {
+                    const tableClone = table.cloneNode(true);
                     
-                    const leftContent = document.querySelector('.left-content');
-                    if (leftContent) {
-                        const clone = leftContent.cloneNode(true);
-                        processNode(clone);
-                        markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                    // Remove "VIEW" column from overview table
+                    const headers = Array.from(tableClone.querySelectorAll('thead th'));
+                    const viewIndex = headers.findIndex(th => th.innerText.trim().toUpperCase() === 'VIEW');
+                    
+                    if (viewIndex !== -1) {
+                        tableClone.querySelectorAll('tr').forEach(tr => {
+                            const cells = tr.querySelectorAll('th, td');
+                            if (cells[viewIndex]) cells[viewIndex].remove();
+                        });
+                    }
+
+                    processNode(tableClone);
+                    markdown += turndownService.turndown(tableClone.outerHTML) + '\n\n';
+                } else {
+                    markdown += `*No score table found.*\n\n`;
+                }
+                
+                finalizeExport();
+                return;
+            }
+
+            if (window.__scraperMode === 'exportSyllabus') {
+                await scrapeSyllabus();
+                return;
+            }
+            // --- End Specialized Handling ---
+
+            const tabButtons = document.querySelectorAll('app-tab-bar .tab-item');
+
+            // Helper to sync Ace editor values to data attributes
+            // This now sends a message to the background script to run in the MAIN world
+            const syncAce = async () => {
+                console.log('Syncing Ace editors...');
+                return new Promise((resolve) => {
+                    const timeout = setTimeout(() => {
+                        console.warn('⚠️ syncAce timed out. Falling back to DOM extraction.');
+                        resolve({ success: false, timeout: true });
+                    }, 5000); // 5s timeout to avoid freezing if background is busy
+
+                    chrome.runtime.sendMessage({ action: 'syncAce' }, (response) => {
+                        clearTimeout(timeout);
+                        if (chrome.runtime.lastError) {
+                            console.error('❌ syncAce message error:', chrome.runtime.lastError);
+                        }
+                        resolve(response || { success: false });
+                    });
+                });
+            };
+
+            const initialTabs = document.querySelectorAll('app-tab-bar .tab-item');
+            const transcriptCues = document.querySelectorAll('.transcript .cue');
+            const ytIframe = document.querySelector('iframe#player');
+            
+            if (ytIframe && transcriptCues.length > 0) {
+                const src = ytIframe.src;
+                let wtLink = "";
+                let thumbLink = "";
+                // Try to extract the video ID
+                const vidMatch = src.match(/embed\/([^?]+)/);
+                if (vidMatch && vidMatch[1]) {
+                    const vidId = vidMatch[1];
+                    wtLink = `https://www.youtube.com/watch?v=${vidId}`;
+                    thumbLink = `https://img.youtube.com/vi/${vidId}/mqdefault.jpg`;
+                } else {
+                    wtLink = src;
+                }
+                
+                if (thumbLink) markdown += `![Lecture Thumbnail](${thumbLink})\n\n`;
+                markdown += `> 🎥 **Video Link:** [Watch on YouTube](${wtLink})\n\n`;
+                
+                console.log(`Lecture page detected, scraping ${transcriptCues.length} transcript segments...`);
+                markdown += `## 📜 Lecture Transcript\n\n`;
+                
+                transcriptCues.forEach(cue => {
+                    const spans = cue.querySelectorAll('span');
+                    if (spans.length >= 2) {
+                        const time = spans[0]?.innerText.trim();
+                        const text = spans[1]?.innerText.trim();
+                        if (time && text) {
+                            markdown += `**[${time}]** ${text}  \n`;
+                        }
+                    }
+                });
+                
+                markdown += '\n---\n\n';
+            } else if (initialTabs.length > 0) {
+                console.log(`GRPA detected, scraping ${initialTabs.length} tabs...`);
+
+                for (let i = 0; i < initialTabs.length; i++) {
+                    // Re-query buttons to avoid detached elements during tab switching
+                    const currentBtn = document.querySelectorAll('app-tab-bar .tab-item')[i];
+                    if (!currentBtn) continue;
+
+                    const tabName = currentBtn.innerText.trim();
+                    markdown += `## ${tabName}\n\n`;
+                    console.log(`Scraping tab ${i + 1}: ${tabName}`);
+
+                    currentBtn.click();
+                    await new Promise(r => setTimeout(r, 3000));
+                    await syncAce();
+
+                    try {
+                        if (tabName.toLowerCase() === 'test cases') {
+                            const testTypes = document.querySelectorAll('.test-case-type-block');
+                            if (testTypes.length > 0) {
+                                for (const typeBtn of testTypes) {
+                                    const typeName = typeBtn.innerText.trim();
+                                    markdown += `### ${typeName}\n\n`;
+                                    typeBtn.click();
+                                    await new Promise(r => setTimeout(r, 1000));
+
+                                    const caseButtons = document.querySelectorAll('.case-btn');
+                                    for (let j = 0; j < caseButtons.length; j++) {
+                                        const currentCaseBtn = document.querySelectorAll('.case-btn')[j];
+                                        if (!currentCaseBtn) continue;
+
+                                        const caseName = currentCaseBtn.innerText.trim();
+                                        markdown += `#### ${caseName}\n\n`;
+                                        currentCaseBtn.click();
+                                        await new Promise(r => setTimeout(r, 300));
+
+                                        const testCaseBlocks = document.querySelectorAll('.test-case-block');
+                                        testCaseBlocks.forEach(block => {
+                                            const title = block.querySelector('.test-case-block-title')?.innerText.trim();
+                                            const content = block.querySelector('.test-case-block-content')?.innerText.trim();
+                                            if (title && content) {
+                                                markdown += `**${title}:**\n\`\`\`text\n${content}\n\`\`\`\n\n`;
+                                            }
+                                        });
+                                    }
+                                }
+                            } else {
+                                const leftContent = document.querySelector('.left-content');
+                                if (leftContent) {
+                                    const clone = leftContent.cloneNode(true);
+                                    processNode(clone);
+                                    markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                                }
+                            }
+                        } else {
+                            // For Question, Overview, Solution, etc.
+                            const leftContent = document.querySelector('.left-content');
+                            if (leftContent) {
+                                const clone = leftContent.cloneNode(true);
+                                processNode(clone);
+                                markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                            }
+                        }
+                    } catch (err) {
+                        console.error(`Error scraping tab ${tabName}:`, err);
+                        markdown += `*Error scraping this tab.*\n\n`;
                     }
                     markdown += '---\n\n';
+                }
+
+                // Add "My Solution" from the right panel if it exists
+                const rightPanel = document.querySelector('.right-panel');
+                if (rightPanel) {
+                    await syncAce(); // Ensure latest state is captured
+                    const editor = rightPanel.querySelector('.ace_editor');
+                    if (editor) {
+                        markdown += `## My Solution\n\n`;
+                        const ta = editor.querySelector('textarea.ace_text-input');
+                        const fullCode = editor.getAttribute('data-full-code') || (ta && ta.value && ta.value.length > 10 ? ta.value : null);
+                        
+                        let solutionCode = "";
+                        if (fullCode) {
+                            solutionCode = fullCode;
+                        } else {
+                            // Fallback if data sync failed
+                            const lines = Array.from(editor.querySelectorAll('.ace_line')).map(l => {
+                                const clone = l.cloneNode(true);
+                                clone.querySelectorAll('.ace_indent-guide').forEach(g => g.remove());
+                                return clone.textContent.replace(/\u200B/g, '');
+                            });
+                            solutionCode = lines.join('\n');
+                        }
+
+                        // Try to detect language
+                        const langSelector = rightPanel.querySelector('.mat-mdc-select-value-text');
+                        let lang = 'python';
+                        if (langSelector) {
+                            const selectedLang = langSelector.innerText.toLowerCase();
+                            if (selectedLang.includes('python')) lang = 'python';
+                            else if (selectedLang.includes('java')) lang = 'java';
+                            else if (selectedLang.includes('c++')) lang = 'cpp';
+                        }
+
+                        markdown += `\`\`\`${lang}\n${solutionCode.trimEnd()}\n\`\`\`\n\n`;
+                        markdown += '---\n\n';
+                    }
                 }
             } else {
                 // Regular assignment logic
                 const headerInfo = document.querySelector('.assessment-top-info');
                 if (headerInfo) markdown += `> ${headerInfo.innerText.trim().replace(/\n\s*\n/g, '\n> ')}\n\n`;
-                
+
                 const lastSubmitted = document.querySelector('.submission-info .submission-date');
                 if (lastSubmitted) markdown += `> **Last Submitted:** ${lastSubmitted.innerText.trim()}\n\n`;
-                
+
                 markdown += `---\n\n`;
-                
+
+                // NEW: Scrape intro text/code blocks that appear before Question 1
+                const bodyContent = document.querySelector('.gcb-assessment-body');
+                if (bodyContent) {
+                    const firstQuestion = bodyContent.querySelector('.gcb-question-row');
+                    const introClone = bodyContent.cloneNode(true);
+
+                    // Remove all question rows to get only the intro/common content
+                    introClone.querySelectorAll('.gcb-question-row').forEach(q => q.remove());
+                    // Remove empty placeholders or scripts
+                    introClone.querySelectorAll('noscript, script, .qt-warning').forEach(el => el.remove());
+
+                    processNode(introClone);
+                    let introMarkdown = turndownService.turndown(introClone.innerHTML).trim();
+                    if (introMarkdown) {
+                        markdown += `## Introduction\n\n${introMarkdown}\n\n---\n\n`;
+                    }
+                }
+
                 const questionBlocks = document.querySelectorAll('.gcb-question-row');
                 questionBlocks.forEach((block, index) => {
                     markdown += `### Question ${index + 1}\n\n`;
-                    
+
                     const questionTextElement = block.querySelector('.qt-question');
                     if (questionTextElement) {
                         const questionClone = questionTextElement.cloneNode(true);
@@ -88,17 +317,17 @@
                         processNode(questionClone);
                         markdown += turndownService.turndown(questionClone.innerHTML).replace(/\n\n\n/g, '\n\n') + '\n\n';
                     }
-                    
+
                     const choices = block.querySelectorAll('.gcb-mcq-choice');
                     if (choices.length > 0) {
                         choices.forEach(choice => {
                             const input = choice.querySelector('input');
                             const label = choice.querySelector('label');
                             if (!label) return;
-                            
+
                             const labelClone = label.cloneNode(true);
                             processNode(labelClone);
-                            
+
                             const isChecked = input ? (input.checked || input.hasAttribute('checked')) : false;
                             const checkbox = isChecked ? '- [x]' : '- [ ]';
                             const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim().replace(/\n/g, '  \n    ');
@@ -120,7 +349,7 @@
                             const statusSpans = Array.from(statusHeader.querySelectorAll('span.correct'));
                             const statusText = statusSpans[0]?.innerText.trim();
                             if (statusText) markdown += `**Status:** ${statusText}\n`;
-                            
+
                             const scoreSpan = statusSpans.find(s => s.innerText.toLowerCase().includes('score'));
                             if (scoreSpan) markdown += `**Score:** ${scoreSpan.innerText.trim()}\n`;
                         }
@@ -149,6 +378,14 @@
                 });
             }
 
+            // Clean up the final markdown before saving
+            // 1. Force images to be flush left regardless of indentation depth
+            markdown = markdown.replace(/^[ \t]+(!\[.*?\]\()/gm, '$1');
+            // 2. Remove trailing whitespace on lines
+            markdown = markdown.replace(/[ \t]+$/gm, '');
+            // 3. Optional: Fix double newlines before images
+            markdown = markdown.replace(/\n{2,}(!\[.*?\]\()/gm, '\n\n$1');
+            
             finalizeExport();
         }
 
@@ -157,17 +394,44 @@
          */
         function processNode(root) {
             // 1. Remove obvious artifact elements first
-            root.querySelectorAll('.CodeMirror-linenumber, .linenumber, .CodeMirror-measure, .CodeMirror-cursors, .CodeMirror-hscrollbar, .CodeMirror-vscrollbar, noscript').forEach(el => el.remove());
+            // Also remove invisible Ace measurement layers but be VERY conservative
+            root.querySelectorAll('.CodeMirror-linenumber, .linenumber, .CodeMirror-measure, .CodeMirror-cursors, .CodeMirror-hscrollbar, .CodeMirror-vscrollbar, noscript, .ace_gutter, .ace_tooltip, .ace_print-margin-layer, .ace_marker-layer, .ace_cursor-layer').forEach(el => el.remove());
+
+            // Remove Ace measurement divs (identified by having visibility: hidden and typical measurement styles)
+            root.querySelectorAll('.ace_editor > div').forEach(div => {
+                if (div.style.visibility === 'hidden' || (div.style.position === 'absolute' && !div.classList.contains('ace_scroller') && !div.classList.contains('ace_gutter'))) {
+                    div.remove();
+                }
+            });
 
             // 2. Specialized Code Block Reconstruction
-            root.querySelectorAll('.CodeMirror, .codemirror-container-readonly, .code-container, pre').forEach(container => {
+            // Search for containers within root, but ALSO check root itself
+            const selector = '.CodeMirror, .codemirror-container-readonly, .code-container, pre, .ace_editor';
+            const containers = Array.from(root.querySelectorAll(selector));
+            if (root.matches && root.matches(selector)) containers.unshift(root);
+
+            containers.forEach(container => {
                 // If this is a nested element we already processed, skip
                 if (container.querySelector('code')) return;
 
                 let lines = [];
                 const cmLines = container.querySelectorAll('.CodeMirror-line');
-                
-                if (cmLines.length > 0) {
+                const aceLines = container.querySelectorAll('.ace_line');
+                const ta = container.querySelector('textarea.ace_text-input');
+                const fullCode = container.getAttribute('data-full-code') || (ta && ta.value && ta.value.length > 10 ? ta.value : null);
+
+                if (fullCode) {
+                    lines = fullCode.split(/\r?\n/);
+                } else if (aceLines.length > 0) {
+                    aceLines.forEach(lineEl => {
+                        // Reliable node walking fallback for virtual scrolling
+                        const lineClone = lineEl.cloneNode(true);
+                        // Strip out visual-only overlays that interfere with text
+                        lineClone.querySelectorAll('.ace_indent-guide').forEach(el => el.remove());
+                        const text = lineClone.textContent.replace(/\u200B/g, '');
+                        lines.push(text);
+                    });
+                } else if (cmLines.length > 0) {
                     cmLines.forEach(lineEl => {
                         // Use textContent to preserve all spacing
                         let text = lineEl.textContent.replace(/\u200B/g, ''); // Remove zero-width spaces
@@ -182,11 +446,25 @@
 
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
-                const lang = container.getAttribute('data-mode') || 'python';
+
+                // Try to detect programming language from the UI or Ace mode
+                let lang = container.getAttribute('data-ace-mode') || container.getAttribute('data-mode') || 'python';
+                if (!container.getAttribute('data-ace-mode')) {
+                    const langSelector = container.closest('.right-panel, .left-panel')?.querySelector('.mat-mdc-select-value-text');
+                    if (langSelector) {
+                        const selectedLang = langSelector.innerText.toLowerCase();
+                        if (selectedLang.includes('python')) lang = 'python';
+                        else if (selectedLang.includes('java')) lang = 'java';
+                        else if (selectedLang.includes('c++')) lang = 'cpp';
+                        else if (selectedLang.includes('c ')) lang = 'c';
+                        else if (selectedLang.includes('javascript')) lang = 'javascript';
+                    }
+                }
+
                 code.className = `language-${lang}`;
                 code.textContent = lines.join('\n').trimEnd();
                 pre.appendChild(code);
-                
+
                 if (container.parentNode) {
                     container.parentNode.replaceChild(pre, container);
                 }
@@ -197,13 +475,13 @@
             let node;
             const textNodes = [];
             while (node = walker.nextNode()) textNodes.push(node);
-            
+
             textNodes.forEach(t => {
                 if (t.textContent.includes('xxxxxxxxxx')) {
                     t.textContent = t.textContent.replace(/xxxxxxxxxx/g, '');
                 }
             });
-            
+
             // 4. Ensure tables have borders for better rendering in some viewers
             root.querySelectorAll('table').forEach(table => {
                 table.setAttribute('border', '1');
@@ -214,7 +492,7 @@
         function finalizeExport() {
             // Final safety filter for any escaped markers
             let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
-            
+
             const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -230,8 +508,93 @@
             console.log(`✅ Export complete: ${filename}`);
         }
 
+        /**
+         * Consolidates all course details from the course_wise page into one report
+         */
+        async function scrapeScoreCheckerAll() {
+            const forms = Array.from(document.querySelectorAll('form[action="/view_score"]'));
+            if (forms.length === 0) {
+                alert('No course details found to export.');
+                return;
+            }
+
+            console.log(`IITM Scraper: Consolidating ${forms.length} courses...`);
+            
+            let consolidatedMarkdown = `# IITM Score Checker - Consolidated Report\n\n`;
+            consolidatedMarkdown += `> **Generated on:** ${new Date().toLocaleString()}\n`;
+            consolidatedMarkdown += `> **Course Context:** IITM Degree\n\n`;
+
+            const alerts = Array.from(document.querySelectorAll('.alert')).map(a => a.innerText.trim());
+            if (alerts.length > 0) {
+                consolidatedMarkdown += `> ${alerts.join('\n> ')}\n\n`;
+            }
+
+            for (let i = 0; i < forms.length; i++) {
+                const form = forms[i];
+                const row = form.closest('tr');
+                const courseCode = row.querySelector('td:nth-child(3)')?.innerText.trim() || 'Unknown';
+                const totalScore = row.querySelector('td:nth-child(4)')?.innerText.trim() || 'N/A';
+                
+                consolidatedMarkdown += `## [${i+1}] ${courseCode}\n`;
+                consolidatedMarkdown += `**Total Score:** \`${totalScore}\`\n\n`;
+
+                try {
+                    const formData = new FormData(form);
+                    const response = await fetch(form.action, { method: 'POST', body: formData });
+                    const html = await response.text();
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    
+                    const table = doc.querySelector('table');
+                    if (table) {
+                        const tableClone = table.cloneNode(true);
+                        processNode(tableClone);
+                        consolidatedMarkdown += turndownService.turndown(tableClone.outerHTML) + '\n\n';
+                    } else {
+                        consolidatedMarkdown += `*Detailed scores not available.*\n\n`;
+                    }
+                } catch (e) {
+                    consolidatedMarkdown += `*Failed to fetch details for this course.*\n\n`;
+                }
+                consolidatedMarkdown += '---\n\n';
+            }
+
+            markdown = consolidatedMarkdown;
+            finalizeExport();
+        }
+
+        async function scrapeSyllabus() {
+            console.log('IITM Scraper: Exporting Course Syllabus...');
+            let syllabusMd = `# Syllabus: ${courseTitle}\n\n`;
+            syllabusMd += `> **Generated on:** ${new Date().toLocaleString()}\n\n`;
+
+            const weeks = document.querySelectorAll('.units__items');
+            if (weeks.length === 0) {
+                alert('No syllabus items found in the sidebar. Please ensure you are on a course page.');
+                return;
+            }
+
+            weeks.forEach((week, idx) => {
+                const weekTitle = week.querySelector('.units__items-title')?.innerText.trim() || `Week ${idx+1}`;
+                syllabusMd += `## ${weekTitle}\n\n`;
+
+                const subItems = week.querySelectorAll('.units__subitems');
+                subItems.forEach(item => {
+                    const title = item.querySelector('.units__subitems-title span')?.innerText.trim() || item.innerText.split('\n')[0].trim();
+                    const type = item.querySelector('.units__subitems-videos')?.innerText.trim() || 'Item';
+                    const icon = type.includes('Video') ? '🎥' : type.includes('Assignment') ? '📝' : '📖';
+                    
+                    syllabusMd += `- ${icon} **${title}** (${type})\n`;
+                });
+                syllabusMd += `\n`;
+            });
+
+            markdown = syllabusMd;
+            assignmentTitle = "Course Syllabus";
+            finalizeExport();
+        }
+
         scrapeContent();
     }
-    
     runExporter();
 })();
