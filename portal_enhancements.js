@@ -70,7 +70,7 @@
     }
 
     const autoCloseSidebar = () => {
-        if (sidebarClosedThisSession || autoCloseAttempts > 20) return;
+        if (sidebarClosedThisSession || autoCloseAttempts > 20 || isSpotlightOpen) return;
         const sidenav = document.querySelector('mat-sidenav');
         if (!sidenav) return;
         
@@ -122,9 +122,12 @@
             if (spotlight && spotlight.style.display === 'flex') {
                 const box = spotlight.querySelector('.spotlight-box');
                 const isClickInside = box && box.contains(e.target);
-                const isToggleBtn = !!e.target.closest('#iitm-header-search');
                 
-                if (!isClickInside && !isToggleBtn) {
+                // IGNORE clicks from search toggle AND sidebar toggle (prevents auto-close bug)
+                const isHeaderBtn = !!e.target.closest('#iitm-header-search');
+                const isSidebarBtn = !!e.target.closest('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
+                
+                if (!isClickInside && !isHeaderBtn && !isSidebarBtn) {
                     isSpotlightOpen = false;
                     spotlight.style.display = 'none';
                 }
