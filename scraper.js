@@ -111,6 +111,10 @@
                 await scrapeSyllabus();
                 return;
             }
+
+            if (window.__scraperMode === 'copyToClipboard' || window.__scraperMode === 'capture') {
+                console.log('IITM Scraper: Fast Scraping Mode...');
+            }
             // --- End Specialized Handling ---
 
             const tabButtons = document.querySelectorAll('app-tab-bar .tab-item');
@@ -499,6 +503,26 @@
             const cleanCourse = courseTitle.replace(/[^\w\s-]/g, '').trim();
             const cleanAssignment = assignmentTitle.replace(/[^\w\s-]/g, '').trim();
             const filename = `${cleanCourse} - ${cleanAssignment}.md`;
+            
+            if (window.__scraperMode === 'copyToClipboard') {
+                navigator.clipboard.writeText(finalMarkdown).then(() => {
+                    console.log('✅ Copied to clipboard!');
+                    // Visual feedback is handled in portal_enhancements.js
+                }).catch(err => {
+                    console.error('❌ Clipboard failed:', err);
+                    alert('Clipboard access denied. Check browser permissions.');
+                });
+                return;
+            }
+
+            if (window.__scraperMode === 'capture') {
+                window.dispatchEvent(new CustomEvent('iitm-markdown-captured', { detail: { markdown: finalMarkdown } }));
+                window.__scraperMode = 'single'; // Reset
+                return;
+            }
+
+            url = URL.createObjectURL(blob);
+            a = document.createElement('a');
             a.href = url;
             a.download = filename;
             document.body.appendChild(a);

@@ -1,69 +1,161 @@
-.iitm-scraper-btn {
+#iitm-btn-container {
     position: fixed;
     bottom: 30px;
     right: 30px;
-    width: 56px;
-    height: 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 999999;
+}
+
+#iitm-btn-close {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 22px;
+    height: 22px;
+    background: #f44336;
+    color: white;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6e8efb, #a777e3);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    border: 2px solid #fff;
+    z-index: 1000001;
+    opacity: 0;
+    transition: 0.2s;
+}
+
+#iitm-btn-container:hover #iitm-btn-close {
+    opacity: 1;
+}
+
+.iitm-floating-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    z-index: 999999;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     border: 2px solid rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(5px);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    position: relative;
+    animation: fadeInUp 0.5s ease-out forwards;
 }
 
-.iitm-scraper-btn:hover {
-    transform: scale(1.1) translateY(-5px);
+.iitm-scraper-btn {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+
+.iitm-ai-btn {
+    background: linear-gradient(135deg, #059669, #10b981);
+    animation-delay: 0.1s;
+}
+
+.iitm-floating-btn:hover {
+    transform: scale(1.1) translateX(-5px);
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
-    background: linear-gradient(135deg, #7e9efb, #b787e3);
 }
 
-.iitm-scraper-btn:active {
+.iitm-ai-btn:hover {
+    background: linear-gradient(135deg, #10b981, #34d399);
+}
+
+.iitm-floating-btn:active {
     transform: scale(0.95);
 }
 
-.iitm-scraper-btn svg {
-    width: 28px;
-    height: 28px;
-    fill: white;
+.iitm-floating-btn svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: white;
     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
 }
 
-.iitm-scraper-tooltip {
+.iitm-scraper-btn svg {
+    fill: white;
+    stroke: none;
+}
+
+.iitm-tooltip {
     position: absolute;
-    right: 70px;
-    background: rgba(30, 30, 30, 0.9);
+    right: 60px;
+    background: rgba(18, 18, 18, 0.95);
     color: white;
-    padding: 8px 14px;
+    padding: 6px 12px;
     border-radius: 8px;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 700;
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
     transition: all 0.2s ease;
     transform: translateX(10px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-family: 'Inter', system-ui, sans-serif;
     border: 1px solid rgba(255,255,255,0.1);
 }
 
-.iitm-scraper-btn:hover .iitm-scraper-tooltip {
+.iitm-floating-btn:hover .iitm-tooltip {
     opacity: 1;
     transform: translateX(0);
 }
 
-/* Animation for the button appearance */
+.iitm-dropup {
+    position: absolute;
+    bottom: 60px;
+    right: 0;
+    background: #121212;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 6px;
+    display: none;
+    flex-direction: column;
+    width: 170px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    z-index: 1000000;
+    backdrop-filter: blur(10px);
+}
+
+.ai-option {
+    padding: 10px 14px;
+    color: #bbb;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: 0.2s;
+    font-family: 'Inter', sans-serif;
+}
+
+.ai-option:hover {
+    background: rgba(255,255,255,0.05);
+    color: #fff;
+    padding-left: 18px;
+}
+
+.ai-icon-svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Ensure hidden in clean mode */
+body.iitm-clean-mode #iitm-btn-container {
+    display: none !important;
+}
+
 @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(20px) scale(0.8); }
     to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.iitm-scraper-btn {
-    animation: fadeInUp 0.5s ease-out forwards;
 }

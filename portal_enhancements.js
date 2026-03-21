@@ -1,9 +1,182 @@
 (function() {
+    // 1. INJECT GOOGLE FONTS (Inter)
+    if (!document.getElementById('iitm-font-link')) {
+        const link = document.createElement('link');
+        link.id = 'iitm-font-link';
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap';
+        document.head.appendChild(link);
+    }
+
     console.log('IITM Explorer: Enhancing Productivity...');
 
     const body = document.body;
     let activeFilter = 'all';
     let isTimerDismissed = false; 
+
+    // 4. AI EXPLANATION (Chanhdai Style)
+    const openInAI = async (service) => {
+        const btn = document.getElementById('iitm-header-search');
+        const originalText = btn ? btn.innerHTML : '';
+        if (btn) btn.innerHTML = '<span style="font-size:10px;color:#1e88e5;">Scraping...</span>';
+
+        // Trigger scraper and tell it to capture result
+        window.__scraperMode = 'capture';
+        
+        // Request markdown from scraper
+        const md = await new Promise(resolve => {
+            // Trigger scraper but tell it NOT to download
+            chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture' });
+            
+            // Listener for the markdown result
+            const handler = (e) => {
+                window.removeEventListener('iitm-markdown-captured', handler);
+                resolve(e.detail?.markdown);
+            };
+            window.addEventListener('iitm-markdown-captured', handler);
+            
+            // Safety timeout
+            setTimeout(() => {
+                window.removeEventListener('iitm-markdown-captured', handler);
+                resolve(null);
+            }, 8000);
+        });
+
+        if (!md) {
+            if (btn) btn.innerHTML = '<span style="font-size:10px;color:#f44336;">Error</span>';
+            setTimeout(() => { if(btn) btn.innerHTML = originalText; }, 2000);
+            return;
+        }
+
+        // Copy to clipboard
+        try {
+            await navigator.clipboard.writeText(md);
+            // Visual feedback on the search bar
+            if (btn) btn.innerHTML = '<span style="font-size:10px;color:#4caf50;">Copied!</span>';
+            // Visual feedback on the floating button (if it exists)
+            const aiBtn = document.getElementById('iitm-ai-floating-btn');
+            if (aiBtn) {
+                const originalContent = aiBtn.innerHTML;
+                aiBtn.style.background = '#4caf50';
+                aiBtn.innerHTML = '<span style="font-size:18px;">✅</span>';
+                setTimeout(() => {
+                    if (aiBtn) {
+                        aiBtn.style.background = ''; // Resets to CSS gradient
+                        aiBtn.innerHTML = originalContent;
+                    }
+                }, 2000);
+            }
+        } catch (err) {
+            console.error('Clipboard error:', err);
+        }
+        
+        setTimeout(() => { if(btn) btn.innerHTML = originalText; }, 2000);
+
+        const prompt = `I have copied the contents of an IIT Madras Online Degree lesson/assignment/code to my clipboard. 
+        Please analyze the content, explain any complex concepts, and help me understand the key takeaways. 
+        If it's a programming assignment, explain the logic and edge cases without just giving the solution.
+        I will paste the content below:`;
+
+        const urls = {
+            chatgpt: `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`,
+            claude: `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
+            scira: `https://scira.ai/?q=${encodeURIComponent(prompt)}`
+        };
+
+        window.open(urls[service] || urls.chatgpt, '_blank');
+    };
+
+    // Global listener for the floating AI options (ensures user gesture for clipboard)
+    document.body.addEventListener('click', (e) => {
+        const option = e.target.closest('.ai-option');
+        if (option) {
+            const service = option.dataset.service;
+            openInAI(service);
+        }
+    });
+
+    // 5. BULK EXPORT ALL WEEKS
+    const bulkScrapeAll = async () => {
+        const subItems = Array.from(document.querySelectorAll('.units__subitems'));
+        if (subItems.length === 0) return alert('Sidebar nodes not found. Make sure weeks are expanded.');
+        
+        if (!confirm(`This will scrape ${subItems.length} units sequentially. It might take a minute. Proceed?`)) return;
+
+        // Show progress overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'iitm-bulk-overlay';
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); color: white; z-index: 20000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-family: 'Inter', sans-serif; backdrop-filter: blur(10px);
+        `;
+        overlay.innerHTML = `
+            <div style="font-size: 24px; font-weight: 800; margin-bottom: 20px;">📦 Exporting All Content</div>
+            <div id="bulk-progress-text" style="font-size: 16px; opacity: 0.8; margin-bottom: 30px;">Initializing...</div>
+            <div style="width: 300px; height: 10px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;">
+                <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: #1e88e5; transition: 0.3s;"></div>
+            </div>
+            <button id="cancel-bulk-btn" style="margin-top: 40px; background: #a0332d; border: none; color: white; padding: 10px 24px; border-radius: 20px; cursor: pointer; font-weight: 700;">Cancel</button>
+        `;
+        document.body.appendChild(overlay);
+
+        let cancelled = false;
+        document.getElementById('cancel-bulk-btn').onclick = () => { cancelled = true; overlay.remove(); };
+
+        let combinedMarkdown = `# Course Export: ${document.title}\n\n`;
+        const progressText = document.getElementById('bulk-progress-text');
+        const progressBar = document.getElementById('bulk-progress-bar');
+
+        for (let i = 0; i < subItems.length; i++) {
+            if (cancelled) break;
+            
+            const item = subItems[i];
+            const title = item.innerText.split('\n')[0].trim();
+            
+            progressText.innerText = `[${i+1}/${subItems.length}] Scraping: ${title}`;
+            progressBar.style.width = `${((i+1)/subItems.length) * 100}%`;
+            
+            // Navigate to the unit
+            item.click();
+            
+            // Wait for angular to load the page content (dynamic)
+            await new Promise(r => setTimeout(r, 4000)); // Safer wait for data loads
+            
+            // Request markdown from scraper
+            const md = await new Promise(resolve => {
+                // Trigger scraper but tell it NOT to download
+                chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture' });
+                
+                const handler = (e) => {
+                    window.removeEventListener('iitm-markdown-captured', handler);
+                    resolve(e.detail?.markdown);
+                };
+                window.addEventListener('iitm-markdown-captured', handler);
+                setTimeout(() => { 
+                    window.removeEventListener('iitm-markdown-captured', handler); 
+                    resolve(null); 
+                }, 8000);
+            });
+
+            if (md) {
+                combinedMarkdown += `\n\n--- \n\n ${md}`;
+            }
+        }
+
+        if (!cancelled) {
+            const blob = new Blob([combinedMarkdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Bulk_Export_${document.title.replace(/\s+/g, '_')}_${Date.now()}.md`;
+            a.click();
+            overlay.innerHTML = `<div style="font-size: 24px;">✅ Export Complete!</div>`;
+            setTimeout(() => overlay.remove(), 2000);
+        }
+    };
+
+    let isDarkMode = localStorage.getItem('iitm-dark-mode-enabled') === 'true';
     let isCleanMode = localStorage.getItem('iitm-clean-mode-enabled') === 'true';
     let isFocusBarVisible = localStorage.getItem('iitm-focus-bar-visible') !== 'false';
     let isNotesBtnVisible = localStorage.getItem('iitm-notes-btn-visible') !== 'false';
@@ -32,6 +205,7 @@
 
     const updateBodyClasses = () => {
         body.classList.toggle('iitm-clean-mode', isCleanMode);
+        body.classList.toggle('iitm-dark-mode', isDarkMode);
         body.classList.toggle('iitm-hide-focus', !isFocusBarVisible);
         body.classList.toggle('iitm-hide-notes', !isNotesBtnVisible);
         body.classList.toggle('iitm-hide-progress', !isProgressVisible);
@@ -43,6 +217,9 @@
         if (action === 'toggleCleanMode') {
             isCleanMode = !isCleanMode;
             localStorage.setItem('iitm-clean-mode-enabled', isCleanMode);
+        } else if (action === 'toggleDarkMode') {
+            isDarkMode = !isDarkMode;
+            localStorage.setItem('iitm-dark-mode-enabled', isDarkMode);
         } else if (action === 'toggleFocusBar') {
             isFocusBarVisible = !isFocusBarVisible;
             localStorage.setItem('iitm-focus-bar-visible', isFocusBarVisible);
@@ -167,11 +344,11 @@
             btn.style.cssText = `
                 width: 32px; height: 32px; border-radius: 50%; display: flex; 
                 align-items: center; justify-content: center; cursor: pointer;
-                background: rgba(255,255,255,0.1); border: 1px solid rgba(0,0,0,0.05);
-                transition: 0.2s; font-size: 16px; color: #333;
+                background: transparent; border: none;
+                transition: 0.2s; font-size: 16px; color: #666;
             `;
-            btn.onmouseenter = () => btn.style.background = 'rgba(0,0,0,0.1)';
-            btn.onmouseleave = () => btn.style.background = 'rgba(255,255,255,0.1)';
+            btn.onmouseenter = () => btn.style.background = 'rgba(0,0,0,0.05)';
+            btn.onmouseleave = () => btn.style.background = 'transparent';
             if (callback) btn.onclick = callback; // Only assign if callback is provided
             return btn;
         };
@@ -184,6 +361,15 @@
             updateBodyClasses();
         };
         container.appendChild(btnClean);
+
+        // Dark Mode Toggle
+        const btnDark = createBtn('iitm-toggle-dark', '🌙', 'Toggle Ultra Dark Mode');
+        btnDark.onclick = () => {
+            isDarkMode = !isDarkMode;
+            localStorage.setItem('iitm-dark-mode-enabled', isDarkMode);
+            updateBodyClasses();
+        };
+        container.appendChild(btnDark);
 
         // Quick Notes
         container.appendChild(createBtn('iitm-toggle-notes', '📝', 'Quick Notes', () => {
@@ -431,40 +617,18 @@
     // 2. SPOTLIGHT SEARCH (Cmd+K)
     const injectSpotlight = () => {
         const existing = document.getElementById('iitm-spotlight');
-        if (existing) {
-            existing.style.display = isSpotlightOpen ? 'flex' : 'none';
-            return;
+
+        // Always ensure the latest CSS is injected or updated
+        let styleTag = document.getElementById('iitm-spotlight-styles');
+        if (!styleTag) {
+            styleTag = document.createElement('style');
+            styleTag.id = 'iitm-spotlight-styles';
+            document.head.appendChild(styleTag);
         }
+        styleTag.innerText = `
+            /* GLOBAL TYPOGRAPHY */
+            * { font-family: 'Inter', -apple-system, sans-serif !important; }
 
-        const spotlight = document.createElement('div');
-        spotlight.id = 'iitm-spotlight';
-        spotlight.style.display = isSpotlightOpen ? 'flex' : 'none';
-        spotlight.innerHTML = `
-            <div class="spotlight-box">
-                <div class="spotlight-header">
-                    <div style="padding: 24px 30px 4px 30px; font-size: 13px; font-weight: 800; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">
-                        Quick Navigation
-                    </div>
-                    <input id="spotlight-input" type="text" placeholder="Search Lessons, Assignments, Weeks..." autocomplete="off">
-                    <div class="spotlight-filters">
-                        <div class="filter-chip active" data-filter="all">All</div>
-                        <div class="filter-chip" data-filter="video">🎥 Videos</div>
-                        <div class="filter-chip" data-filter="graded">📝 Graded</div>
-                        <div class="filter-chip" data-filter="grpa">💻 GrPA</div>
-                        <div class="filter-chip" data-filter="command">🤖 Commands</div>
-                        <div class="filter-chip" data-filter="week">📅 Weeks</div>
-                    </div>
-                </div>
-                <div id="spotlight-results"></div>
-                <div style="padding: 14px 30px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 11px; color: #555; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
-                    <div>Tip: Use <span style="background:rgba(21,101,192,0.2); color:#1e88e5; padding:2px 6px; border-radius:4px; font-weight:700;">↑ ↓</span> to navigate, <span style="background:rgba(21,101,192,0.2); color:#1e88e5; padding:2px 6px; border-radius:4px; font-weight:700;">Enter</span> to select</div>
-                    <button id="syllabus-export-btn" class="iitm-btn" style="padding: 6px 14px; font-size: 11px;">📊 Export Syllabus</button>
-                </div>
-            </div>
-        `;
-
-        const style = document.createElement('style');
-        style.innerText = `
             #iitm-spotlight {
                 position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                 z-index: 10000; display: flex; align-items: flex-start; justify-content: center;
@@ -477,19 +641,13 @@
                 font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 pointer-events: auto;
             }
-            .spotlight-header {
-                background: rgba(40,40,40,0.8);
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
+            .spotlight-header { background: rgba(40,40,40,0.8); border-bottom: 1px solid rgba(255,255,255,0.1); }
             #spotlight-input { 
                 width: 100%; background: transparent; border: none; 
                 padding: 12px 30px 24px 30px; color: white; font-size: 24px; outline: none; 
                 font-weight: 300;
             }
-            .spotlight-filters { 
-                padding: 0 30px 20px 30px; display: flex; gap: 10px; 
-                flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-            }
+            .spotlight-filters { padding: 0 30px 20px 30px; display: flex; gap: 10px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
             .spotlight-filters::-webkit-scrollbar { display: none; }
             #spotlight-results { max-height: 550px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
             .spotlight-item { 
@@ -498,82 +656,99 @@
                 align-items: center;
             }
             .spotlight-item:hover { background: rgba(21, 101, 192, 0.15); color: #fff; padding-left: 36px; }
-            .spotlight-item .content { flex: 1; }
             .spotlight-item .title { font-size: 15px; font-weight: 500; margin-bottom: 2px; }
-            .spotlight-item .type { 
-                font-size: 9px; opacity: 0.9; text-transform: uppercase; border: none; 
-                padding: 4px 10px; border-radius: 6px; font-weight: 900; letter-spacing: 0.8px;
-                background: rgba(255,255,255,0.05); color: #888;
-            }
-            .spotlight-item:hover .type { background: #1565c0; color: white; }
-            
+            .type { font-size: 9px; padding: 4px 10px; border-radius: 6px; font-weight: 900; background: rgba(255,255,255,0.05); color: #888; text-transform: uppercase; }
             .filter-chip { 
                 background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #777; 
-                padding: 8px 18px; border-radius: 12px; font-size: 11px; font-weight: 700;
-                cursor: pointer; white-space: nowrap; transition: 0.25s;
-                text-transform: uppercase; letter-spacing: 0.5px;
+                padding: 8px 18px; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.25s;
             }
-            .filter-chip:hover { background: rgba(255,255,255,0.08); color: #ddd; }
             .filter-chip.active { background: #1e88e5; border-color: #1e88e5; color: white; }
 
-            /* MASTER CLEAN MODE - Hides EVERYTHING at once */
-            /* MASTER CLEAN MODE - Hides EVERYTHING at once */
+            /* CLEAN MODE & TOGGLES */
             body.iitm-clean-mode #iitm-header-utils,
             body.iitm-clean-mode #iitm-header-search,
             body.iitm-clean-mode .iitm-scraper-btn,
             body.iitm-clean-mode .iitm-copy-btn,
-            body.iitm-clean-mode #iitm-deadline-widget,
-            body.iitm-clean-mode #iitm-deadline-popup,
             body.iitm-clean-mode #iitm-global-timer,
             body.iitm-clean-mode #iitm-focus-bar,
-            body.iitm-clean-mode #iitm-progress-card,
-            body.iitm-clean-mode #iitm-timer-container { display: none !important; }
-
-            /* INDIVIDUAL TOGGLES */
-            body.iitm-hide-notes #iitm-toggle-notes { display: none !important; }
-            body.iitm-hide-focus #iitm-focus-bar { display: none !important; }
+            body.iitm-clean-mode #iitm-progress-card { display: none !important; }
+            body.iitm-clean-mode #iitm-ai-dropdown { display: none !important; }
             body.iitm-hide-progress #iitm-progress-card { display: none !important; }
+
+            /* DARK MODE OVERRIDES */
+            body.iitm-dark-mode { background: #0a0a0a !important; color: #eee !important; }
+            body.iitm-dark-mode .header, 
+            body.iitm-dark-mode mat-sidenav,
+            body.iitm-dark-mode .units__list,
+            body.iitm-dark-mode .units__items,
+            body.iitm-dark-mode .units__subitems { background: #121212 !important; border-color: #222 !important; color: #ccc !important; }
+            body.iitm-dark-mode .mat-drawer-content, body.iitm-dark-mode .mat-sidenav-content { background: #0a0a0a !important; }
+            body.iitm-dark-mode .mat-mdc-card, body.iitm-dark-mode .mdc-card { background: #181818 !important; color: #eee !important; border: 1px solid #333 !important; }
+
+            /* PROGRESS CARD DARK MODE */
+            #iitm-progress-card { transition: 0.3s; background: white; border: 1px solid #e0e0e0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); color: #333; }
+            body.iitm-dark-mode #iitm-progress-card { background: #181818 !important; border-color: #333 !important; color: #eee !important; box-shadow: 0 10px 40px rgba(0,0,0,0.3) !important; }
+            body.iitm-dark-mode .progress-bg { background: #333 !important; }
             
-            #iitm-notes-drawer {
-                position: fixed; top: 0; right: 0; width: 360px; height: 100vh;
-                background: white; border-left: 1px solid #ddd;
-                box-shadow: -10px 0 50px rgba(0,0,0,0.1); z-index: 10005; display: none;
-                flex-direction: column; overflow: hidden; font-family: 'Inter', sans-serif;
+            /* ACE EDITOR DARK MODE */
+            body.iitm-dark-mode .ace_editor { background: #121212 !important; color: #eee !important; }
+            body.iitm-dark-mode .ace_gutter { background: #181818 !important; color: #666 !important; }
+            
+            /* SCROLLBARS */
+            body.iitm-dark-mode ::-webkit-scrollbar { width: 10px; height: 10px; }
+            body.iitm-dark-mode ::-webkit-scrollbar-track { background: #0a0a0a; }
+            body.iitm-dark-mode ::-webkit-scrollbar-thumb { background: #222; border-radius: 5px; border: 2px solid #0a0a0a; }
+
+            /* AI DROPDOWN */
+            #iitm-ai-dropdown {
+                position: absolute; right: 0; bottom: 100%; margin-bottom: 8px;
+                background: #121212; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 12px; padding: 6px; display: none; flex-direction: column;
+                z-index: 10002; box-shadow: 0 10px 40px rgba(0,0,0,0.5); width: 220px;
             }
-            .notes-header { 
-                background: #121212; color: white; padding: 20px; 
-                display: flex; justify-content: space-between; align-items: center;
-                font-weight: 800; letter-spacing: 0.5px;
+            .ai-option {
+                padding: 10px 14px; color: #aaa; border-radius: 8px; display: flex; 
+                align-items: center; gap: 10px; cursor: pointer; transition: 0.2s;
+                font-size: 13px; font-weight: 500;
             }
-            .notes-list { flex: 1; overflow-y: auto; padding: 15px; background: #fafafa; }
-            .note-item { 
-                background: white; border: 1px solid #eee; padding: 12px; 
-                border-radius: 12px; margin-bottom: 12px; position: relative;
-                transition: 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-            }
-            .note-item:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
-            .notes-footer { 
-                padding: 15px; border-top: 1px solid #eee; display: flex; gap: 10px;
-                background: white; box-shadow: 0 -10px 20px rgba(0,0,0,0.02);
-            }
-            .iitm-btn {
-                flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #1e88e5;
-                background: white; color: #1e88e5; cursor: pointer; font-size: 11px;
-                font-weight: 800; text-transform: uppercase; transition: 0.2s;
-            }
-            .iitm-btn:hover { background: #1e88e5; color: white; }
+            .ai-option:hover { background: rgba(255,255,255,0.05); color: #fff; }
             .breadcrumb { font-size: 10px; color: #555; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-            .spotlight-item:hover .breadcrumb { color: #1565c0; }
         `;
-        document.head.appendChild(style);
+
+        if (existing) {
+            existing.style.display = isSpotlightOpen ? 'flex' : 'none';
+            return;
+        }
+
+        const spotlight = document.createElement('div');
+        spotlight.id = 'iitm-spotlight';
+        spotlight.style.display = 'none';
+        spotlight.innerHTML = `
+            <div class="spotlight-box">
+                <div class="spotlight-header">
+                    <div style="padding: 24px 30px 4px 30px; font-size: 13px; font-weight: 800; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">Quick Navigation</div>
+                    <input id="spotlight-input" type="text" placeholder="Search Lessons, Assignments, Weeks..." autocomplete="off">
+                    <div class="spotlight-filters">
+                        <div class="filter-chip active" data-filter="all">All</div>
+                        <div class="filter-chip" data-filter="video">🎥 Videos</div>
+                        <div class="filter-chip" data-filter="graded">📝 Graded</div>
+                        <div class="filter-chip" data-filter="grpa">💻 GrPA</div>
+                        <div class="filter-chip" data-filter="command">🤖 Commands</div>
+                        <div class="filter-chip" data-filter="week">📅 Weeks</div>
+                    </div>
+                </div>
+                <div id="spotlight-results"></div>
+                <div style="padding: 14px 30px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 11px; color: #555; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
+                    <div>Tip: Use <span style="background:rgba(21,101,192,0.2); color:#1e88e5; padding:2px 6px; border-radius:4px; font-weight:700;">↑ ↓</span> to navigate</div>
+                    <button id="syllabus-export-btn" class="iitm-btn" style="padding: 6px 14px; font-size: 11px;">📊 Export Syllabus</button>
+                </div>
+            </div>
+        `;
+
         document.body.appendChild(spotlight);
 
         const input = document.getElementById('spotlight-input');
         const results = document.getElementById('spotlight-results');
-
-        // let activeFilter = 'all'; // This line was moved to the top of the file
-
-        // let activeFilter = 'all'; // This line was moved to the top of the file
 
         const renderResults = (items) => {
             results.innerHTML = '';
@@ -585,9 +760,8 @@
                     const text = (item.text || '').toLowerCase();
                     if (activeFilter === 'video') return tag.includes('video');
                     if (activeFilter === 'graded') {
-                        // Ensure 'Not Graded' items are excluded from the graded filter
                         const isGradedMatch = tag === 'graded' || text.includes('graded');
-                        const isNotGraded = text.includes('not graded') || text.includes('un-graded') || text.includes('practice');
+                        const isNotGraded = text.includes('not graded') || text.includes('un-graded');
                         return isGradedMatch && !isNotGraded;
                     }
                     if (activeFilter === 'grpa') return tag.includes('grpa') || text.includes('grpa');
@@ -597,19 +771,7 @@
                 });
             }
 
-            // Cap results for performance
-            const displayItems = filtered.slice(0, 50);
-
-            if (displayItems.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'spotlight-item';
-                empty.style.justifyContent = 'center';
-                empty.innerText = input.value ? 'No matches found.' : 'Nothing found in this category yet.';
-                results.appendChild(empty);
-                return;
-            }
-
-            displayItems.forEach(item => {
+            filtered.slice(0, 50).forEach(item => {
                 const div = document.createElement('div');
                 div.className = 'spotlight-item';
                 div.innerHTML = `
@@ -621,14 +783,15 @@
                 `;
                 div.onclick = () => {
                     if (item.actionId) {
-                        // Handle Command Palette Actions
                         if (item.actionId === 'exportSyllabus') chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'exportSyllabus' });
                         else if (item.actionId === 'exportNotes') document.getElementById('export-notes-btn')?.click();
                         else if (item.actionId === 'unlockPage') chrome.runtime.sendMessage({ action: 'unlockPage' });
+                        else if (item.actionId === 'explainChatGPT') openInAI('chatgpt');
+                        else if (item.actionId === 'explainClaude') openInAI('claude');
+                        else if (item.actionId === 'bulkExport') bulkScrapeAll();
                         else handleUIToggle(item.actionId);
                     } else {
-                        const clickable = item.el.closest('button') || item.el;
-                        clickable.click();
+                        (item.el.closest('button') || item.el).click();
                     }
                     isSpotlightOpen = false;
                     spotlight.style.display = 'none';
@@ -698,7 +861,11 @@
                 { text: 'Unlock Editor and Copy-Paste', typeLabel: 'Action', el: null, action: 'unlockPage' },
                 { text: 'Toggle Study Progress Card', typeLabel: 'Action', el: null, action: 'toggleProgress' },
                 { text: 'Export Study Notes as Markdown', typeLabel: 'Action', el: null, action: 'exportNotes' },
-                { text: 'Toggle Study Focus Bar', typeLabel: 'Action', el: null, action: 'toggleFocusBar' }
+                { text: 'Toggle Study Focus Bar', typeLabel: 'Action', el: null, action: 'toggleFocusBar' },
+                { text: '🌙 Toggle Dark Mode', typeLabel: 'Action', el: null, action: 'toggleDarkMode' },
+                { text: '🤖 Explain Page with ChatGPT', typeLabel: 'Action', el: null, action: 'explainChatGPT' },
+                { text: '🧠 Solve with Claude', typeLabel: 'Action', el: null, action: 'explainClaude' },
+                { text: '📦 Bulk Export All Weeks (Export All)', typeLabel: 'Action', el: null, action: 'bulkExport' }
             ];
 
             actions.forEach(act => {
@@ -929,20 +1096,20 @@
             card = document.createElement('div');
             card.id = 'iitm-progress-card';
             card.style.cssText = `
-                margin: 15px; padding: 15px; background: white;
-                border-radius: 8px; border: 1px solid #e0e0e0;
-                font-family: 'Inter', sans-serif; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-                position: relative; z-index: 10;
+                margin: 15px; padding: 15px; border-radius: 12px;
+                font-family: 'Inter', sans-serif; position: relative; z-index: 10;
             `;
             list.insertBefore(card, list.firstChild);
         }
 
         // Gather Stats accurately from the sidebar elements
         const subItems = Array.from(document.querySelectorAll('.units__subitems'));
-        let v_total = 0, v_done = 0;
-        let g_total = 0, g_done = 0;
-        let r_total = 0, r_done = 0;
-        let q_total = 0, q_done = 0;
+        let stats = {
+            videos: 0, totalVideos: 0,
+            graded: 0, totalGraded: 0,
+            grpa: 0, totalGrpa: 0,
+            quizzes: 0, totalQuizzes: 0
+        };
         
         subItems.forEach(item => {
             const t = item.innerText.toLowerCase();
@@ -956,39 +1123,39 @@
             const isGraded = t.includes('graded') && !isGrPA && !isQuiz && !isNote;
 
             if (tag.includes('video')) {
-                v_total++;
-                if (isDone) v_done++;
+                stats.totalVideos++;
+                if (isDone) stats.videos++;
             } else if (isGrPA) {
-                r_total++;
-                if (isDone) r_done++;
+                stats.totalGrpa++;
+                if (isDone) stats.grpa++;
             } else if (isQuiz) {
                 if (isNote) return; 
-                q_total++;
-                if (isDone) q_done++;
+                stats.totalQuizzes++;
+                if (isDone) stats.quizzes++;
             } else if (isGraded) {
-                g_total++;
-                if (isDone) g_done++;
+                stats.totalGraded++;
+                if (isDone) stats.graded++;
             }
         });
 
-        const done = g_done + r_done + q_done;
-        const total = g_total + r_total + q_total;
-        const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+        const done = stats.graded + stats.grpa + stats.quizzes;
+        const total = stats.totalGraded + stats.totalGrpa + stats.totalQuizzes;
+        const progress = total > 0 ? Math.round((done / total) * 100) : 0;
 
         // Only update if content changed or if it was 0/0
         card.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <span style="font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#666;">Course Progress</span>
-                <span style="font-weight:900; color:#1e88e5; font-size:12px;">${percent}%</span>
+                <span class="progress-label" style="font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.5px;">Course Progress</span>
+                <span style="font-weight:900; color:#1e88e5; font-size:13px;">${progress}%</span>
             </div>
-            <div style="width:100%; height:8px; background:#eee; border-radius:4px; margin-bottom:12px; overflow:hidden;">
-                <div style="width:${percent}%; height:100%; background:#1e88e5; border-radius:4px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+            <div class="progress-bg" style="width:100%; height:8px; border-radius:4px; margin-bottom:12px; overflow:hidden;">
+                <div style="width:${progress}%; height:100%; background:#1e88e5; border-radius:4px; transition: width 1.2s cubic-bezier(0.19, 1, 0.22, 1);"></div>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:9px; font-weight:700; color:#444;">
-                <div style="display:flex; align-items:center; gap:4px;"><span style="filter:grayscale(0.6);">🎬</span> Videos: ${v_done}/${v_total}</div>
-                <div style="display:flex; align-items:center; gap:4px;"><span style="filter:grayscale(0.6);">📝</span> Graded: ${g_done}/${g_total}</div>
-                <div style="display:flex; align-items:center; gap:4px;"><span style="color:#9c27b0;">💻</span> GrPA: ${r_done}/${r_total}</div>
-                <div style="display:flex; align-items:center; gap:4px;"><span style="color:#ef6c00;">🏆</span> Quizzes: ${q_done}/${q_total || 1}</div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:10px; font-weight:700;">
+                <div style="display:flex; align-items:center; gap:6px;"><span style="filter:grayscale(0.6);">🎬</span> Videos: ${stats.videos}/${stats.totalVideos}</div>
+                <div style="display:flex; align-items:center; gap:6px;"><span style="filter:grayscale(0.6);">📝</span> Graded: ${stats.graded}/${stats.totalGraded}</div>
+                <div style="display:flex; align-items:center; gap:6px;"><span style="color:#9c27b0;">💻</span> GrPA: ${stats.grpa}/${stats.totalGrpa}</div>
+                <div style="display:flex; align-items:center; gap:6px;"><span style="color:#ef6c00;">🏆</span> Quizzes: ${stats.quizzes}/${stats.totalQuizzes}</div>
             </div>
         `;
     };
