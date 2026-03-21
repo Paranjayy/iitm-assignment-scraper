@@ -13,18 +13,27 @@ chrome.runtime.onInstalled.addListener(() => {
     documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
   });
 
-  // Interface Settings Submenu
+  // Top-level UI Management (No nesting as requested)
   chrome.contextMenus.create({
-    id: "interfaceSettings",
-    title: "🎨 Interface Settings",
+    id: "toggleCleanMode",
+    title: "🪄 Toggle Clean UI (All)",
     contexts: ["all"],
     documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
   });
 
-  chrome.contextMenus.create({ id: "toggleCleanMode", parentId: "interfaceSettings", title: "🪄 Toggle Clean UI", contexts: ["all"] });
-  chrome.contextMenus.create({ id: "toggleFocusBar", parentId: "interfaceSettings", title: "⏱️ Toggle Focus Bar", contexts: ["all"] });
-  chrome.contextMenus.create({ id: "toggleNotesBtn", parentId: "interfaceSettings", title: "📝 Toggle Notes Button", contexts: ["all"] });
-  chrome.contextMenus.create({ id: "toggleProgress", parentId: "interfaceSettings", title: "📊 Toggle Progress Tracker", contexts: ["all"] });
+  chrome.contextMenus.create({
+    id: "toggleFocusBar",
+    title: "⏱️ Toggle Focus Bar",
+    contexts: ["all"],
+    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+  });
+
+  chrome.contextMenus.create({
+    id: "toggleProgress",
+    title: "📊 Toggle Progress Tracker",
+    contexts: ["all"],
+    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+  });
 });
 
 // Helper to unlock editors and events

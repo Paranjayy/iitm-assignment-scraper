@@ -366,17 +366,19 @@
             .filter-chip:hover { background: rgba(255,255,255,0.08); color: #ddd; }
             .filter-chip.active { background: #1e88e5; border-color: #1e88e5; color: white; }
 
-            /* MASTER CLEAN MODE */
-            body.iitm-clean-mode #iitm-deadline-widget,
+            /* MASTER CLEAN MODE - Hides EVERYTHING at once */
+            body.iitm-clean-mode #iitm-header-utils,
             body.iitm-clean-mode #iitm-header-search,
             body.iitm-clean-mode .iitm-scraper-btn,
             body.iitm-clean-mode .iitm-copy-btn,
             body.iitm-clean-mode #iitm-deadline-widget,
             body.iitm-clean-mode #iitm-deadline-popup,
             body.iitm-clean-mode #iitm-global-timer,
-            body.iitm-clean-mode .iitm-focus-bar { display: none !important; }
+            body.iitm-clean-mode #iitm-focus-bar,
+            body.iitm-clean-mode #iitm-progress-card,
+            body.iitm-clean-mode #iitm-timer-container { display: none !important; }
 
-            /* NOTES DRAWER & BUTTON */
+            /* INDIVIDUAL TOGGLES */
             body.iitm-hide-notes #iitm-toggle-notes { display: none !important; }
             body.iitm-hide-focus #iitm-focus-bar { display: none !important; }
             body.iitm-hide-progress #iitm-progress-card { display: none !important; }
