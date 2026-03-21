@@ -116,10 +116,14 @@
 
         document.addEventListener('click', (e) => {
             const spotlight = document.getElementById('iitm-spotlight');
-            if (spotlight && spotlight.style.display === 'flex' && 
-                !spotlight.contains(e.target) && 
-                !e.target.closest('#iitm-header-search')) {
-                spotlight.style.display = 'none';
+            if (spotlight && spotlight.style.display === 'flex') {
+                const box = spotlight.querySelector('.spotlight-box');
+                const isClickInside = box && box.contains(e.target);
+                const isToggleBtn = !!e.target.closest('#iitm-header-search');
+                
+                if (!isClickInside && !isToggleBtn) {
+                    spotlight.style.display = 'none';
+                }
             }
         });
         
@@ -435,6 +439,7 @@
                         <div class="filter-chip" data-filter="video">🎥 Videos</div>
                         <div class="filter-chip" data-filter="graded">📝 Graded</div>
                         <div class="filter-chip" data-filter="grpa">💻 GrPA</div>
+                        <div class="filter-chip" data-filter="command">🤖 Commands</div>
                         <div class="filter-chip" data-filter="week">📅 Weeks</div>
                     </div>
                 </div>
@@ -574,6 +579,7 @@
                         return isGradedMatch && !isNotGraded;
                     }
                     if (activeFilter === 'grpa') return tag.includes('grpa') || text.includes('grpa');
+                    if (activeFilter === 'command') return tag.includes('action');
                     if (activeFilter === 'week') return !item.isSub;
                     return true;
                 });
