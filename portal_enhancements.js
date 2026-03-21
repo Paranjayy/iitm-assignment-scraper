@@ -799,9 +799,9 @@
         }
     };
 
-    // 4. GLOBAL TIMER FOR ASSIGNMENTS
+    // 4. GLOBAL TIMER FOR ASSIGNMENTS & LECTURES
     const injectGlobalTimer = () => {
-        // Detect if we are on an assignment page
+        // Detect if we are on an assignment or lecture page
         const isAssignmentPage = !!(
             document.querySelector('.assignment-title') || 
             document.querySelector('.assessment-top-info') || 
@@ -810,10 +810,16 @@
             document.querySelector('app-quizzes')
         );
         
+        const isLecturePage = !!(
+            document.querySelector('video') || 
+            window.location.href.includes('/course_unit/') ||
+            (document.querySelector('.units__subitems-selected') && document.querySelector('.units__subitems-selected').innerText.toLowerCase().includes('video'))
+        );
+        
         const hasFocusBar = !!document.getElementById('iitm-focus-bar');
         
-        // Ensure we ONLY inject if visible assignment content is present
-        if (!isAssignmentPage || hasFocusBar || document.getElementById('iitm-global-timer') || isTimerDismissed) return;
+        // Ensure we ONLY inject if visible assignment or lecture content is present
+        if ((!isAssignmentPage && !isLecturePage) || hasFocusBar || document.getElementById('iitm-global-timer') || isTimerDismissed) return;
 
         const timer = document.createElement('div');
         timer.id = 'iitm-global-timer';
