@@ -14,6 +14,37 @@
         <div class="iitm-tooltip">Export Markdown</div>
     `;
 
+    // 2. AI Explain Button
+    const aiBtn = document.createElement('div');
+    aiBtn.id = 'iitm-ai-floating-btn';
+    aiBtn.className = 'iitm-floating-btn iitm-ai-btn';
+    aiBtn.title = 'Explain with AI';
+    aiBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 1 0 10 10H12V2z"></path>
+            <path d="M12 12L2.1 12"></path>
+            <path d="M12 12l9.9 0"></path>
+            <path d="M12 12V22"></path>
+        </svg>
+        <div class="iitm-tooltip">Brainstorm with AI</div>
+        
+        <!-- DROPUP MENU -->
+        <div id="iitm-ai-dropdown" class="iitm-dropup">
+            <div class="ai-option" data-service="chatgpt">
+                <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #10a37f;"><path fill="currentColor" d="M22.282 11.976c0-2.327-1.123-4.48-3.003-5.834a7.9 7.9 0 0 0-1.898-1.077a7.9 7.9 0 0 0-8.225 1.705a7.9 7.9 0 0 0-1.897 2.454a7.9 7.9 0 0 0-.616 3.106c0 2.327 1.123 4.48 3.003 5.835a7.9 7.9 0 0 0 1.898 1.077a7.9 7.9 0 0 0 8.225-1.705a7.9 7.9 0 0 0 1.897-2.454a7.9 7.9 0 0 0 .616-3.107Zm-12.016 4.606a5.6 5.6 0 0 1-2.126-4.131a5.6 5.6 0 0 1 2.126-4.131a5.6 5.6 0 0 1 4.131-2.126a5.6 5.6 0 0 1 4.131 2.126a5.6 5.6 0 0 1 2.126 4.131a5.6 5.6 0 0 1-2.126 4.131a5.6 5.6 0 0 1-4.131 2.126a5.6 5.6 0 0 1-4.131-2.126Z"/></svg>
+                ChatGPT
+            </div>
+            <div class="ai-option" data-service="claude">
+                <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #d97757;"><path fill="currentColor" d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z"/></svg>
+                Claude
+            </div>
+            <div class="ai-option" data-service="scira">
+                <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #1e88e5;"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                Scira AI
+            </div>
+        </div>
+    `;
+
     // 3. Bulk Export Button
     const bulkBtn = document.createElement('div');
     bulkBtn.id = 'iitm-bulk-floating-btn';
