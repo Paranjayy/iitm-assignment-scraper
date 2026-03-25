@@ -144,6 +144,24 @@
 
                     processNode(tableClone);
                     markdown += turndownService.turndown(tableClone.outerHTML) + '\n\n';
+
+                    // ADD GRADE PROJECTION TO MARKDOWN
+                    const rows = Array.from(table.querySelectorAll('tr')).slice(1);
+                    let gradedTotal = 0, gradedCount = 0;
+                    rows.forEach(r => {
+                        const scoreStr = r.querySelector('td:last-child')?.innerText.trim();
+                        const score = parseFloat(scoreStr);
+                        if (!isNaN(score)) { gradedTotal += score; gradedCount++; }
+                    });
+                    if (gradedCount > 0) {
+                        const totalCount = rows.length;
+                        const remainingCount = totalCount - gradedCount;
+                        const avg = (gradedTotal / gradedCount).toFixed(2);
+                        const reqForS = remainingCount > 0 ? Math.max(0, (85 * totalCount - gradedTotal) / remainingCount).toFixed(2) : 'N/A';
+                        markdown += `### 🎯 Grade Projection\n`;
+                        markdown += `- **Current Quiz Average:** \`${avg}\`\n`;
+                        markdown += `- **Remaining Needed for 'S' Grade:** \`${reqForS}\` (average needed in remaining ${remainingCount} quizzes/exams)\n\n`;
+                    }
                 } else {
                     markdown += `*No score table found.*\n\n`;
                 }
@@ -218,7 +236,34 @@
                         }
                     }
                 });
+
+                // INDEX TRANSCRIPT FOR DEEP SEARCH
+                const transcriptText = Array.from(transcriptCues).map(c => c.innerText.replace(/\s+/g, ' ').trim()).join(' ');
+                if (transcriptText) {
+                    chrome.runtime.sendMessage({
+                        action: 'indexTranscript',
+                        data: {
+                            title: assignmentTitle,
+                            course: courseTitle,
+                            url: window.location.href,
+                            text: transcriptText
+                        }
+                    });
+                }
                 
+                // --- Resource/PDF Discovery ---
+                const resourceLinks = Array.from(document.querySelectorAll('a[href*=".pdf"], .supplementary-content a, .resource-item a, app-resource-item a'))
+                    .map(a => ({ title: a.innerText.trim() || 'Download Resource', url: a.href }))
+                    .filter((v, i, a) => a.findIndex(t => t.url === v.url) === i); // Unique
+
+                if (resourceLinks.length > 0) {
+                    markdown += `### 📚 Associated Resources\n\n`;
+                    resourceLinks.forEach(res => {
+                        markdown += `- [📄 ${res.title}](${res.url})\n`;
+                    });
+                    markdown += '\n---\n\n';
+                }
+
                 markdown += '\n---\n\n';
             } else if (initialTabs.length > 0) {
                 console.log(`GRPA detected, scraping ${initialTabs.length} tabs...`);
@@ -569,7 +614,7 @@
             });
         }
 
-        function finalizeExport() {
+        async function finalizeExport() {
             // Final safety filter for any escaped markers
             let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
 
@@ -583,17 +628,26 @@
             }
 
             if (window.__scraperMode === 'capture') {
-                window.dispatchEvent(new CustomEvent('iitm-markdown-captured', { detail: { markdown: finalMarkdown } }));
+                const detail = { 
+                    markdown: finalMarkdown, 
+                    title: assignmentTitle,
+                    course: courseTitle,
+                    resources: Array.from(document.querySelectorAll('a[href*=".pdf"]')).map(a => ({ title: a.innerText.trim(), url: a.href }))
+                };
+                window.dispatchEvent(new CustomEvent('iitm-markdown-captured', { detail }));
                 window.__scraperMode = 'single'; // Reset
                 return;
             }
 
-            const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
             const cleanCourse = (courseTitle || 'Course').replace(/[^\w\s-]/g, '').trim();
             const cleanAssignment = (assignmentTitle || 'Assignment').replace(/[^\w\s-]/g, '').trim();
             const filename = `${cleanCourse} - ${cleanAssignment}.md`;
+
+            // If we are in bulk mode, we might want to ZIP (handled by portal_enhancements usually)
+            // But if this is a single download, just save as MD
+            const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
             
             a.href = url;
             a.download = filename;

@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "offscreen",
+    "storage"
   ],
   "host_permissions": [
     "https://seek.onlinedegree.iitm.ac.in/*",
@@ -21,7 +23,7 @@
         "*://seek.onlinedegree.iitm.ac.in/*",
         "*://score-checker-379619009600.asia-south1.run.app/*"
       ],
-      "js": ["turndown.js", "content.js", "portal_enhancements.js"],
+      "js": ["turndown.js", "jszip.min.js", "content.js", "portal_enhancements.js"],
       "css": ["inject_button.css"],
       "run_at": "document_idle"
     }

@@ -139,16 +139,39 @@ chrome.commands.onCommand.addListener((command) => {
 
 // Function to execute the scraper
 function executeScaper(tabId, mode = 'single') {
-  chrome.scripting.executeScript({
-    target: { tabId: tabId },
-    func: (m) => { window.__scraperMode = m; },
-    args: [mode]
-  }).then(() => {
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      files: ['scraper.js']
-    });
+    if (tabId) {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: (m) => { 
+          window.__scraperMode = m; 
+          console.log('IITM Background: Mode set to', m);
+        },
+        args: [mode]
+      }).then(() => {
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          files: ['scraper.js']
+        });
+      });
+    }
+}
+
+// Helper to create Offscreen document for ZIP generation
+async function setupOffscreen() {
+  const existing = await chrome.offscreen.hasDocument();
+  if (existing) return;
+  
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['DOM_SCRAPING'],
+    justification: 'Generate ZIP file for course export'
   });
+}
+
+// RELAY MESSAGE TO OFFSCREEN
+async function relayToOffscreen(msg) {
+  await setupOffscreen();
+  chrome.runtime.sendMessage(msg);
 }
 
 // Listen for messages from content scripts
@@ -183,6 +206,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; 
     } else if (request.action === 'unlockPage' && sender.tab) {
         unlockPage(sender.tab.id);
+        sendResponse({ success: true });
+        return true;
+    } else if (request.action === 'generateZip') {
+        relayToOffscreen(request);
+        sendResponse({ success: true });
+    } else if (request.action === 'indexTranscript') {
+        chrome.storage.local.get(['iitm_transcripts'], (result) => {
+            const transcripts = result.iitm_transcripts || [];
+            // Check if already indexed
+            const exists = transcripts.some(t => t.url === request.data.url);
+            if (!exists) {
+                transcripts.push({
+                    title: request.data.title,
+                    course: request.data.course,
+                    url: request.data.url,
+                    text: request.data.text.substring(0, 5000), // Cap size
+                    timestamp: Date.now()
+                });
+                chrome.storage.local.set({ iitm_transcripts: transcripts });
+            }
+        });
+        sendResponse({ success: true });
+    } else if (request.action === 'reloadExtension') {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]?.id) {
+                chrome.tabs.reload(tabs[0].id, { bypassCache: true }, () => {
+                    setTimeout(() => chrome.runtime.reload(), 300);
+                });
+            } else {
+                chrome.runtime.reload();
+            }
+        });
         sendResponse({ success: true });
         return true;
     }

@@ -1,248 +1,195 @@
 #iitm-btn-container {
     position: fixed;
     bottom: 30px;
-    right: 30px;
+    right: 50px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 15px;
     z-index: 999999;
 }
 
-#iitm-btn-close {
-    position: absolute;
-    top: -10px;
-    right: -10px;
-    width: 22px;
-    height: 22px;
-    background: #f44336;
-    color: white;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    border: 2px solid #fff;
-    z-index: 1000001;
-    opacity: 0;
-    transition: 0.2s;
-}
-
-#iitm-btn-container:hover #iitm-btn-close {
-    opacity: 1;
-}
-
+/* Base Floating Button Style */
 .iitm-floating-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 10px;
+    width: 58px;
+    height: 58px;
+    border-radius: 50% !important;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(12px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: none !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255,255,255,0.3);
     position: relative;
-    animation: fadeInUp 0.5s ease-out forwards;
-}
-
-.iitm-scraper-btn {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(99, 102, 241, 0.3);
-}
-
-.iitm-ai-btn {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(16, 185, 129, 0.3);
-    animation-delay: 0.1s;
-}
-
-.iitm-bulk-btn {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(219, 39, 119, 0.3);
-    animation-delay: 0.2s;
+    z-index: 10000;
 }
 
 .iitm-floating-btn:hover {
-    transform: translateY(-4px);
-    background: rgba(40, 40, 40, 0.9);
-    border-color: rgba(255, 255, 255, 0.2);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-}
-
-.iitm-floating-btn:active {
-    transform: translateY(-2px) scale(0.98);
+    transform: scale(1.1) translateY(-5px);
 }
 
 .iitm-floating-btn svg {
-    width: 18px;
-    height: 18px;
-    stroke: #eee;
-    stroke-width: 2;
-    transition: 0.2s;
-}
-
-.iitm-floating-btn:hover svg {
-    stroke: #fff;
-    transform: scale(1.1);
-}
-
-.iitm-scraper-btn svg {
-    fill: #eee;
+    width: 24px;
+    height: 24px;
+    fill: #fff;
     stroke: none;
 }
-.iitm-scraper-btn:hover svg {
-    fill: #fff;
+
+/* Goated Colors (Vibrant Gradients) */
+#iitm-scraper-floating-btn {
+    background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
 }
 
+#iitm-bulk-floating-btn {
+    background: linear-gradient(135deg, #f43f5e 0%, #db2777 100%);
+}
+
+#iitm-ai-floating-btn {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+#iitm-ai-floating-btn > svg {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2.5;
+}
+
+/* Tooltips */
 .iitm-tooltip {
     position: absolute;
-    right: 55px;
-    background: #000;
-    color: #fff;
-    padding: 5px 10px;
+    right: 75px;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 6px 12px;
     border-radius: 6px;
     font-size: 11px;
-    font-weight: 600;
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
     transition: 0.2s;
-    transform: translateX(5px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    font-weight: 700;
 }
-
 .iitm-floating-btn:hover .iitm-tooltip {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateX(-5px);
 }
 
-/* PREMIUM DROPUP (Chanhdai Style) */
+/* SPOTLIGHT BOX REFINEMENT (RAYCAST CLONE with PREVIEW) */
+#iitm-spotlight {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 9999999;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 100px;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(8px);
+}
+
+.spotlight-box {
+    width: 950px;
+    max-height: 520px;
+    background: #1a1a1a;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.8);
+    animation: spotlightIn 0.3s ease-out;
+}
+
+@keyframes spotlightIn {
+    from { opacity: 0; transform: scale(0.95) translateY(20px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+#spotlight-main {
+    flex: 1.2;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+#spotlight-preview {
+    flex: 0.8;
+    background: rgba(255,255,255,0.02);
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+}
+
+.preview-title { font-size: 18px; font-weight: 700; color: #fff; }
+.preview-meta { font-size: 12px; color: #888; }
+
+.spotlight-filters {
+    padding: 12px 25px;
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.filter-chip {
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(255,255,255,0.03);
+    color: #666;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.filter-chip.active {
+    background: rgba(219, 39, 119, 0.2);
+    color: #db2777;
+}
+
+.spotlight-item {
+    padding: 12px 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+}
+.spotlight-item:hover, .spotlight-item.active { background: rgba(255,255,255,0.04); }
+.spotlight-item.active { border-left: 3px solid #db2777; }
+
+.spotlight-item .title { font-size: 14px; color: #dfdfdf; }
+.spotlight-item .breadcrumb { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 2px; }
+.spotlight-item .type { font-size: 9px; font-weight: 900; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; color: #888; }
+
+/* AI Dropup */
 .iitm-dropup {
     position: absolute;
-    bottom: 0;
-    right: 55px;
-    background: rgba(10, 10, 10, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    bottom: 70px;
+    right: 0;
+    background: #1a1a1a;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
     border-radius: 12px;
-    padding: 6px;
     display: none;
     flex-direction: column;
+    padding: 8px;
     width: 200px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
-    z-index: 1000000;
+    z-index: 10001;
     backdrop-filter: blur(20px);
-    animation: slideIn 0.2s ease-out;
 }
 
 .ai-option {
-    padding: 8px 12px;
-    color: #a1a1aa;
-    font-size: 13px;
-    font-weight: 500;
+    padding: 10px 15px;
     border-radius: 8px;
-    cursor: pointer;
     display: flex;
     align-items: center;
     gap: 12px;
-    transition: 0.15s;
-}
-
-.ai-option:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
-}
-
-.ai-icon-svg {
-    width: 16px;
-    height: 16px;
-    opacity: 0.8;
-}
-
-.ai-option:hover .ai-icon-svg {
-    opacity: 1;
-    transform: scale(1.1);
-}
-
-@keyframes slideIn {
-    from { opacity: 0; transform: translateX(10px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-
-/* Ensure hidden in clean mode */
-body.iitm-clean-mode #iitm-btn-container {
-    display: none !important;
-}
-
-@keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* Sidebar Selection UI Refinement */
-.iitm-ui-btn { 
-    background: rgba(255, 255, 255, 0.03) !important; 
-    border: 1px solid rgba(255, 255, 255, 0.1) !important; 
-    border-radius: 6px !important; 
-    padding: 4px 10px !important; 
-    cursor: pointer; 
-    font-size: 11px !important; 
-    font-weight: 600 !important;
-    color: #a1a1aa !important;
-    transition: 0.2s !important;
-}
-.iitm-ui-btn:hover { 
-    background: rgba(255, 255, 255, 0.08) !important; 
-    color: #fff !important; 
-    border-color: rgba(255, 255, 255, 0.2) !important;
-}
-
-#iitm-select-all-container {
-    background: rgba(0, 0, 0, 0.02);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-body.iitm-dark-mode #iitm-select-all-container {
-    background: rgba(255, 255, 255, 0.01);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.iitm-selection-checkbox {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
-    border: 1.5px solid rgba(0, 0, 0, 0.2);
-    border-radius: 3px;
-    outline: none;
+    cursor: pointer;
+    font-size: 13px;
+    color: #dfdfdf;
     transition: 0.2s;
-    position: relative;
-    top: 2px;
 }
-
-body.iitm-dark-mode .iitm-selection-checkbox {
-    border-color: rgba(255, 255, 255, 0.3);
-}
-
-.iitm-selection-checkbox:checked {
-    background-color: #db2777;
-    border-color: #db2777;
-}
-
-.iitm-selection-checkbox:checked::after {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 1px;
-    width: 3px;
-    height: 7px;
-    border: solid white;
-    border-width: 0 1.5px 1.5px 0;
-    transform: rotate(45deg);
-}
-
+.ai-option:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.ai-icon-svg { width: 22px; height: 22px; flex-shrink: 0; }
+.ai-icon-svg * { pointer-events: none; }
+.ai-option:hover .ai-icon-svg { transform: scale(1.1); }

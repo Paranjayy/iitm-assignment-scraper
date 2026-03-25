@@ -5,6 +5,9 @@
     let activeFilter = 'all';
     let isTimerDismissed = false; 
     const selectedItems = new Set(); // Persistent selection storage
+    let includeAssets = localStorage.getItem('iitm-include-assets') !== 'false';
+    let spotlightInitialized = false;
+    let collapsedGroups = new Set(JSON.parse(localStorage.getItem('iitm-collapsed-groups') || '[]'));
 
     // 4. AI EXPLANATION (Chanhdai Style)
     const openInAI = async (service) => {
@@ -72,7 +75,6 @@
         const urls = {
             chatgpt: `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`,
             claude: `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
-            scira: `https://scira.ai/?q=${encodeURIComponent(prompt)}`,
             grok: `https://grok.com/?q=${encodeURIComponent(prompt)}`,
             cursor: `https://cursor.com/link/prompt?text=${encodeURIComponent(prompt)}`,
             gemini: `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`
@@ -92,12 +94,10 @@
 
     // 5. BULK EXPORT ALL WEEKS (Enhanced with Selection)
     const bulkScrapeAll = async () => {
-        // Collect items based on persistent set or visible checkboxes
         let subItems = [];
+        const zip = typeof JSZip !== 'undefined' ? new JSZip() : null;
         
         if (selectedItems.size > 0) {
-            // Map the set IDs back to current DOM elements if possible, 
-            // but safer to just use the DOM for the count
             subItems = Array.from(document.querySelectorAll('.units__subitems')).filter(item => {
                 const title = item.innerText.split('\n')[0].trim();
                 return selectedItems.has(title);
@@ -113,83 +113,133 @@
         }
         
         const count = subItems.length;
-        if (!confirm(`This will automatically scrape ${count} ${selectedItems.size > 0 ? 'SELECTED' : 'ALL'} units sequentially. Proceed?`)) {
-            return;
-        } // Show progress overlay
+        if (!confirm(`This will scrape ${count} units and bundle them into a ZIP. Proceed?`)) return;
+
         const overlay = document.createElement('div');
         overlay.id = 'iitm-bulk-overlay';
         overlay.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(18,18,18,0.92); color: white; z-index: 20000;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            backdrop-filter: blur(15px); font-family: system-ui, sans-serif;
-            animation: fadeIn 0.4s ease;
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            width: 450px; background: rgba(18,18,18,0.95); color: white; z-index: 20000;
+            padding: 25px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
+            display: flex; flex-direction: column; align-items: center;
+            box-shadow: 0 20px 80px rgba(0,0,0,0.8);
+            font-family: system-ui, sans-serif;
+            animation: slideUp 0.4s ease;
+            backdrop-filter: blur(10px);
         `;
         overlay.innerHTML = `
-            <div style="font-size: 28px; font-weight: 800; margin-bottom: 20px; color: #db2777;">📦 Bulk Export in Progress</div>
-            <div id="bulk-progress-text" style="font-size: 16px; opacity: 0.8; margin-bottom: 30px;">Scraping contents automatically...</div>
-            <div style="width: 350px; height: 12px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
-                <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #db2777, #7e22ce); transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 20px rgba(219,39,119,0.5);"></div>
+            <div style="font-size: 20px; font-weight: 800; margin-bottom: 15px; color: #db2777; width: 100%; text-align: left; display: flex; align-items: center; gap: 10px;">
+                <span>📦</span> Building Course ZIP
             </div>
-            <div style="margin-top: 20px; font-size: 12px; color: rgba(255,255,255,0.4);">Estimated time remaining: ${Math.round(count * 4.5)}s</div>
-            <button id="cancel-bulk-btn" style="margin-top: 40px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 12px 30px; border-radius: 25px; cursor: pointer; font-weight: 700; transition: 0.2s;">Cancel Download</button>
+            <div id="bulk-progress-text" style="font-size: 13px; opacity: 0.7; margin-bottom: 20px; width: 100%; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Initializing sequencer...</div>
+            <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 12px;">
+                <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #db2777, #7e22ce); transition: 0.5s;"></div>
+            </div>
+            <div id="bulk-eta" style="font-size: 10px; color: #444; width: 100%; text-align: right; margin-bottom: 20px; font-weight: 700;">ETA: Calculating...</div>
+            <button id="cancel-bulk-btn" style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">Cancel Scrape</button>
         `;
         document.body.appendChild(overlay);
 
         let cancelled = false;
         document.getElementById('cancel-bulk-btn').onclick = () => { cancelled = true; overlay.remove(); };
 
-        let combinedMarkdown = `# Bulk Course Export: ${document.title}\n\n`;
-        combinedMarkdown += `> Generated on: ${new Date().toLocaleString()}\n`;
-        combinedMarkdown += `> Source: ${window.location.origin}\n\n`;
-        
         const progressText = document.getElementById('bulk-progress-text');
         const progressBar = document.getElementById('bulk-progress-bar');
+        const etaText = document.getElementById('bulk-eta');
 
         for (let i = 0; i < subItems.length; i++) {
             if (cancelled) break;
-            
             const item = subItems[i];
             const title = item.innerText.split('\n')[0].trim();
             
-            progressText.innerText = `[${i+1}/${subItems.length}] Processing: ${title}`;
-            progressBar.style.width = `${((i+1)/subItems.length) * 100}%`;
+            const remaining = count - i;
+            const etaSeconds = remaining * 10; // ~10s per item including rendering
+            const mins = Math.floor(etaSeconds / 60);
+            const secs = etaSeconds % 60;
             
-            // Navigate to the unit (Crucial for manual-intervention-free)
-            item.click();
+            progressText.innerText = `Scraping: ${title} (${i+1}/${count})`;
+            progressBar.style.width = `${((i + 1) / count) * 100}%`;
+            etaText.innerText = `ETA: ${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
             
-            // Wait for dynamically loaded content
-            await new Promise(r => setTimeout(r, 4500)); 
-            
-            // Capture markdown
-            const md = await new Promise(resolve => {
-                chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture' });
+            item.click(); // Standard click handles most cases
+            await new Promise(r => setTimeout(r, 8500)); 
+
+            const capturedData = await new Promise((resolve) => {
                 const handler = (e) => {
                     window.removeEventListener('iitm-markdown-captured', handler);
-                    resolve(e.detail?.markdown);
+                    resolve(e.detail);
                 };
                 window.addEventListener('iitm-markdown-captured', handler);
-                setTimeout(() => { 
-                    window.removeEventListener('iitm-markdown-captured', handler); 
-                    resolve(null); 
-                }, 9000); // Higher timeout for slow loads
+                window.__scraperMode = 'capture';
+                // Wait another 1s after global wait for portal internal rendering
+                setTimeout(() => chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture' }), 1000);
+                setTimeout(() => {
+                   window.removeEventListener('iitm-markdown-captured', handler);
+                   resolve(null);
+                }, 10000);
             });
 
-            if (md) {
-                combinedMarkdown += `\n\n--- \n\n# ${title}\n\n${md}`;
+            if (zip && capturedData?.markdown) {
+                const safeTitle = (capturedData.title || title).replace(/[^\w\s-]/g, '').trim();
+                zip.file(`${i+1}. ${safeTitle}.md`, capturedData.markdown);
+                
+                if (includeAssets && capturedData.resources && capturedData.resources.length > 0) {
+                    const resFolder = zip.folder(`Resources/${safeTitle}`);
+                    for (const res of capturedData.resources) {
+                        try {
+                            const resBlob = await fetch(res.url).then(r => r.blob());
+                            resFolder.file(res.title.replace(/[^\w\s\.]/g, '') + '.pdf', resBlob);
+                        } catch (e) {
+                            console.error('Resource fetch failed:', res.url);
+                        }
+                    }
+                }
             }
         }
 
-        if (!cancelled) {
-            const blob = new Blob([combinedMarkdown], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `IITM_Bulk_Export_${document.title.replace(/\s+/g, '_')}_${Date.now()}.md`;
-            a.click();
-            overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Your multi-unit report is downloading...</div>`;
+        if (!cancelled && zip && Object.keys(zip.files).length > 0) {
+            const files = Object.keys(zip.files).filter(k => !zip.files[k].dir);
+            
+            if (files.length === 1) {
+                // SINGLE ITEM: Direct MD download (More convenient)
+                progressText.innerText = "Finalizing individual export...";
+                const fileName = files[0];
+                const content = await zip.files[fileName].async("string");
+                const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 10000);
+                overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Your file is ready.</div>`;
+            } else {
+                // MULTIPLE ITEMS: Generate official ZIP offscreen
+                progressText.innerText = "Stabilizing & Finalizing ZIP...";
+                const zipFiles = [];
+                for (const name in zip.files) {
+                    const file = zip.files[name];
+                    if (!file.dir) {
+                        const content = await file.async("string");
+                        zipFiles.push({ name, content, isBinary: false });
+                    }
+                }
+                
+                chrome.runtime.sendMessage({ 
+                    action: 'generateZip', 
+                    data: { 
+                        files: zipFiles, 
+                        zipName: `IITM_Course_ZIP_${Date.now()}.zip` 
+                    } 
+                });
+                overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Your ZIP bundle is being generated.</div>`;
+            }
             setTimeout(() => overlay.remove(), 2500);
+        } else {
+            overlay.remove();
         }
+        selectedItems.clear();
     };
 
     let isDarkMode = localStorage.getItem('iitm-dark-mode-enabled') === 'true';
@@ -283,8 +333,6 @@
         }
     };
 
-    // Global listeners for Spotlight (Added once)
-    let spotlightInitialized = false;
     const setupSpotlightListeners = () => {
         if (spotlightInitialized) return;
         
@@ -292,23 +340,36 @@
             const spotlight = document.getElementById('iitm-spotlight');
             if (!spotlight) return;
 
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            const isTrigger = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
+            const isAction = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j';
+
+            if (isTrigger) {
                 e.preventDefault();
                 isSpotlightOpen = !isSpotlightOpen;
                 spotlight.style.display = isSpotlightOpen ? 'flex' : 'none';
                 if (isSpotlightOpen) {
                     const input = document.getElementById('spotlight-input');
                     if (input) {
+                        input.value = '';
                         input.focus();
-                        input.dispatchEvent(new Event('input'));
+                        input.oninput();
                     }
                 }
+            } else if (isAction && isSpotlightOpen && e.isTrusted) {
+                // REDIRECT Cmd+J to the spotlight's internal logic
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                const event = new KeyboardEvent('keydown', { key: 'j', metaKey: true, bubbles: true, cancelable: true });
+                spotlight.dispatchEvent(event);
             }
+            
             if (e.key === 'Escape') {
                 isSpotlightOpen = false;
                 spotlight.style.display = 'none';
             }
-        });
+        }, true); // Use capture phase to beat browser defaults
+        spotlightInitialized = true;
+
 
         document.addEventListener('click', (e) => {
             const spotlight = document.getElementById('iitm-spotlight');
@@ -527,23 +588,14 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         `;
         
-        const openSpotlight = () => {
-            const spotlight = document.getElementById('iitm-spotlight');
-            if (spotlight) {
-                isSpotlightOpen = true;
-                spotlight.style.display = 'flex';
-                document.getElementById('spotlight-input').focus();
-            }
+        btn.onclick = () => {
+             isSpotlightOpen = true;
+             const spotlight = document.getElementById('iitm-spotlight');
+             if (spotlight) {
+                 spotlight.style.display = 'flex';
+                 document.getElementById('spotlight-input').focus();
+             }
         };
-
-        window.addEventListener('keydown', (e) => {
-            if ((e.key === 'k' || e.key === 'p') && e.metaKey) {
-                e.preventDefault();
-                openSpotlight();
-            }
-        });
-        
-        btn.onclick = openSpotlight;
 
         menuContainer.insertBefore(btn, menuContainer.firstChild);
     };
@@ -640,8 +692,19 @@
     });
 
     // 2. SPOTLIGHT SEARCH (Cmd+K)
+    let indexedTranscripts = [];
     const injectSpotlight = () => {
-        const existing = document.getElementById('iitm-spotlight');
+        if (document.getElementById('iitm-spotlight')) return;
+        
+        try {
+            if (typeof chrome !== 'undefined' && chrome.runtime?.id && chrome.storage?.local) {
+                chrome.storage.local.get(['iitm_transcripts'], (res) => {
+                    if (chrome.runtime?.id) indexedTranscripts = res.iitm_transcripts || [];
+                });
+            }
+        } catch (e) {
+            // Context invalidated or storage unavailable during reload
+        }
 
         // Always ensure the latest CSS is injected or updated
         let styleTag = document.getElementById('iitm-spotlight-styles');
@@ -672,14 +735,64 @@
             }
             .spotlight-filters { padding: 0 30px 20px 30px; display: flex; gap: 10px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
             .spotlight-filters::-webkit-scrollbar { display: none; }
-            #spotlight-results { max-height: 550px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
-            .spotlight-item { 
-                padding: 14px 30px; color: #aaa; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); 
-                display: flex; justify-content: space-between; gap: 20px; transition: 0.1s linear;
-                align-items: center;
+            #iitm-spotlight {
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                background: rgba(0,0,0,0.1); z-index: 100000;
+                display: none; align-items: flex-start; justify-content: center; padding-top: 10vh;
+                backdrop-filter: none !important;
             }
-            .spotlight-item:hover, .spotlight-item.active { background: rgba(21, 101, 192, 0.15); color: #fff; }
-            .spotlight-item.selected { border-left: 3px solid #db2777; background: rgba(219, 39, 119, 0.05); }
+            #iitm-spotlight .spotlight-box {
+                width: 680px;
+                height: 600px;
+                max-height: 85vh;
+                background: #121212;
+                color: #fff;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 12px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                box-shadow: 0 40px 120px rgba(0,0,0,0.8);
+                font-family: 'Inter', -apple-system, system-ui, sans-serif;
+                animation: zoomIn 0.2s cubic-bezier(0.19, 1, 0.22, 1);
+            }
+            #spotlight-results { 
+                flex: 1; 
+                overflow-y: auto; 
+                overflow-x: hidden;
+                scrollbar-width: thin; 
+                scrollbar-color: rgba(255,255,255,0.1) transparent; 
+                min-height: 0; 
+                pointer-events: auto !important; 
+            }
+            .spotlight-item { 
+                padding: 14px 25px; color: #aaa; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); 
+                display: flex; justify-content: space-between; gap: 20px; transition: 0.1s;
+                align-items: center; border-left: 5px solid transparent; flex-shrink: 0;
+            }
+            .spotlight-item.active { 
+                background: rgba(219, 39, 119, 0.2) !important; 
+                color: #fff !important; 
+                border-left-color: #db2777 !important;
+                box-shadow: inset 10px 0 30px rgba(219,39,119,0.25);
+            }
+            .group-header {
+                padding: 15px 25px 8px 25px; font-size: 10px; font-weight: 900; color: #666;
+                text-transform: uppercase; letter-spacing: 1.5px; background: #1a1a1a;
+                display: flex; justify-content: space-between; align-items: center;
+                border-bottom: 1px solid rgba(255,255,255,0.04);
+                position: sticky; top: 0; z-index: 10;
+            }
+            .spotlight-footer {
+                padding: 15px 25px; 
+                border-top: 1px solid rgba(255,255,255,0.1); 
+                font-size: 11px; color: #888; 
+                display: flex; justify-content: space-between; align-items: center; 
+                background: #0f0f0f; 
+                flex-shrink: 0;
+                box-shadow: 0 -10px 40px rgba(0,0,0,0.4);
+            }
+            .spotlight-item:hover { background: rgba(255, 255, 255, 0.03); }
             .spotlight-item:hover .selection-hint { opacity: 1 !important; }
             .spotlight-item .title { font-size: 15px; font-weight: 500; margin-bottom: 2px; }
             .type { font-size: 9px; padding: 4px 10px; border-radius: 6px; font-weight: 900; background: rgba(255,255,255,0.05); color: #888; text-transform: uppercase; }
@@ -741,37 +854,55 @@
             }
             .ai-option:hover { background: rgba(255,255,255,0.05); color: #fff; }
             .breadcrumb { font-size: 10px; color: #555; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+            @keyframes zoomIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
         `;
 
-        if (existing) {
-            existing.style.display = isSpotlightOpen ? 'flex' : 'none';
+        const spotlightEl = document.getElementById('iitm-spotlight');
+        if (spotlightEl) {
+            spotlightEl.style.display = isSpotlightOpen ? 'flex' : 'none';
             return;
         }
 
         const spotlight = document.createElement('div');
         spotlight.id = 'iitm-spotlight';
-        spotlight.style.display = 'none';
+        spotlight.style.display = 'none'; 
         spotlight.innerHTML = `
             <div class="spotlight-box">
-                <div class="spotlight-header">
-                    <div style="padding: 24px 30px 4px 30px; font-size: 13px; font-weight: 800; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">Quick Navigation</div>
-                    <input id="spotlight-input" type="text" placeholder="Jump to Week or Lesson (⌘P)..." autocomplete="off">
-                    <div class="spotlight-filters">
+                <div id="spotlight-main" style="display: flex; flex-direction: column; height: 100%;">
+                    <div style="padding: 20px 30px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 15px;">
+                        <svg viewBox="0 0 24 24" width="20" height="20" style="color: #666;"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <div style="display:flex; flex-direction:column; flex:1;">
+                            <div style="font-size: 10px; font-weight: 800; color: #db2777; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 2px; opacity: 0.8;">IITM Spotlight</div>
+                            <input type="text" id="spotlight-input" placeholder="Search for commands and course units..." autocomplete="off" spellcheck="false" style="background: none; border: none; color: #fff; font-size: 16px; outline: none; width: 100%; font-family: inherit;">
+                        </div>
+                    </div>
+                    <div class="spotlight-filters" style="padding: 12px 25px; gap: 8px; display: flex; flex-wrap: nowrap; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center;">
                         <div class="filter-chip active" data-filter="all">All</div>
-                        <div class="filter-chip" data-filter="video">🎥 Videos</div>
-                        <div class="filter-chip" data-filter="graded">📝 Graded</div>
-                        <div class="filter-chip" data-filter="grpa">💻 GrPA</div>
-                        <div class="filter-chip" data-filter="command">🤖 Commands</div>
-                        <div class="filter-chip" data-filter="week">📅 Weeks</div>
+                        <div class="filter-chip" data-filter="video">Videos</div>
+                        <div class="filter-chip" data-filter="graded">Graded</div>
+                        <div class="filter-chip" data-filter="grpa">GrPA</div>
+                        <div class="filter-chip" data-filter="assets">Assets</div>
+                        <div class="filter-chip" data-filter="command">Commands</div>
+                        <div class="filter-chip" data-filter="selected">Selected</div>
                     </div>
-                </div>
-                <div id="spotlight-results"></div>
-                <div style="padding: 14px 30px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 11px; color: #555; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4);">
-                    <div id="spotlight-footer-meta">
-                        Tip: Use <span style="background:rgba(21,101,192,0.2); color:#1e88e5; padding:2px 6px; border-radius:4px; font-weight:700;">↑ ↓</span> to navigate
+                    <div id="spotlight-results"></div>
+                    <div class="spotlight-footer">
+                        <div id="selection-counter" style="color:#db2777; font-weight:800; font-family: 'JetBrains Mono', monospace;"></div>
+                        <div style="display: flex; gap: 20px; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="opacity: 0.8; font-weight: 600;">Open</span> <span style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #ccc; border: 1px solid rgba(255,255,255,0.1);">↵</span>
+                            </div>
+                            <div id="footer-actions-hint" style="display: flex; align-items: center; gap: 6px;">
+                                <span style="opacity: 0.8; font-weight: 600;">Actions</span>
+                                <span style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #ccc; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.4);">⌘ J</span>
+                                <span id="footer-assets-status" style="margin-left:5px; font-size:9px; color:#db2777; font-weight:900;">(${includeAssets ? 'ASSETS ON' : 'ASSETS OFF'})</span>
+                            </div>
+                            <div id="asset-indicator" style="display: ${includeAssets ? 'flex' : 'none'}; align-items: center; gap: 6px; background: rgba(219,39,119,0.1); padding: 4px 10px; border-radius: 20px; color: #db2777; font-weight: 800; font-size: 9px; animation: pulse 2s infinite;">
+                                <span style="width: 6px; height: 6px; background: #db2777; border-radius: 50%;"></span>
+                                ASSETS ACTIVE
+                            </div>
+                        </div>
                     </div>
-                    <div id="selection-counter" style="color:#db2777; font-weight:800;"></div>
-                    <button id="syllabus-export-btn" class="iitm-btn" style="padding: 6px 14px; font-size: 11px;">📊 Export Syllabus</button>
                 </div>
             </div>
         `;
@@ -781,66 +912,156 @@
         const input = document.getElementById('spotlight-input');
         const results = document.getElementById('spotlight-results');
 
-        const renderResults = (items) => {
+        const assetBtn = document.getElementById('asset-toggle-btn');
+        if (assetBtn) {
+            assetBtn.onclick = () => {
+                includeAssets = !includeAssets;
+                localStorage.setItem('iitm-include-assets', includeAssets);
+                assetBtn.classList.toggle('active', includeAssets);
+                assetBtn.innerText = `📦 Assets: ${includeAssets ? 'ON' : 'OFF'}`;
+                const indicator = document.getElementById('asset-indicator');
+                if (indicator) indicator.style.display = includeAssets ? 'flex' : 'none';
+                input.oninput(null, true);
+            };
+        }
+
+        const updatePreview = (item) => {
+            // Preview removed as per user request
+        };
+
+        const renderResults = (items, preserveSelection = false) => {
             const counter = document.getElementById('selection-counter');
             if (counter) counter.innerText = selectedItems.size > 0 ? `📦 ${selectedItems.size} Selected` : '';
             
             results.innerHTML = '';
             
-            let filtered = items;
-            if (activeFilter !== 'all') {
-                filtered = items.filter(item => {
-                    const tag = (item.typeLabel || '').toLowerCase();
-                    const text = (item.text || '').toLowerCase();
-                    if (activeFilter === 'video') return tag.includes('video');
-                    if (activeFilter === 'graded') {
-                        const isGradedMatch = tag === 'graded' || text.includes('graded');
-                        const isNotGraded = text.includes('not graded') || text.includes('un-graded');
-                        return isGradedMatch && !isNotGraded;
-                    }
-                    if (activeFilter === 'grpa') return tag.includes('grpa') || text.includes('grpa');
-                    if (activeFilter === 'command') return tag.includes('action');
-                    if (activeFilter === 'week') return !item.isSub;
-                    return true;
-                });
-            }
+            // GROUPING DATA
+            const groupMap = {
+                'SYSTEM COMMANDS': [],
+                'LECTURE VIDEOS': [],
+                'PROGRAMMING ASSIGNMENTS': [],
+                'GRADED ASSIGNMENTS & QUIZZES': [],
+                'COURSE OUTLINE': []
+            };
+            
+            items.forEach(item => {
+                const tag = (item.typeLabel || '').toLowerCase();
+                const text = (item.text || '').toLowerCase();
+                const bread = (item.breadcrumb || '').toLowerCase();
+                
+                let matchesFilter = true;
+                const isExam = text.includes('oppe') || text.includes('nppe') || bread.includes('oppe') || bread.includes('nppe');
+                const isGrPA = (item.isProgramming === true && item.isGraded === true) && !isExam; 
+                const isQuiz = (tag.includes('graded') || tag.includes('quiz') || text.includes('graded assignment')) && !isGrPA && !isExam && item.isGraded === true;
 
-            filtered.slice(0, 50).forEach(item => {
-                const isSelected = selectedItems.has(item.text);
-                const div = document.createElement('div');
-                div.className = `spotlight-item ${isSelected ? 'selected' : ''}`;
-                div.innerHTML = `
-                    <div class="content">
-                        <div class="breadcrumb">${item.breadcrumb || 'Course'}</div>
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            ${isSelected ? '<span style="color:#db2777; font-size:14px;">●</span>' : ''}
-                            <div class="title">${item.text}</div>
-                        </div>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        ${item.isSub ? `<span class="type" style="background:rgba(21,101,192,0.1);color:#1e88e5;">${item.typeLabel}</span>` : '<span class="type">Week</span>'}
-                        <span class="selection-hint" style="font-size:9px; color:#555; opacity:0; transition:0.2s;">Tab to select</span>
-                    </div>
-                `;
-                div.onclick = () => {
-                    if (item.actionId) {
-                        if (item.actionId === 'exportSyllabus') chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'exportSyllabus' });
-                        else if (item.actionId === 'exportNotes') document.getElementById('export-notes-btn')?.click();
-                        else if (item.actionId === 'unlockPage') chrome.runtime.sendMessage({ action: 'unlockPage' });
-                        else if (item.actionId === 'explainChatGPT') openInAI('chatgpt');
-                        else if (item.actionId === 'explainClaude') openInAI('claude');
-                        else if (item.actionId === 'explainGemini') openInAI('gemini');
-                        else if (item.actionId === 'bulkExport') bulkScrapeAll();
-                        else handleUIToggle(item.actionId);
-                    } else {
-                        (item.el.closest('button') || item.el).click();
-                    }
-                    isSpotlightOpen = false;
-                    spotlight.style.display = 'none';
-                    input.value = '';
-                };
-                results.appendChild(div);
+                if (activeFilter !== 'all') {
+                    if (activeFilter === 'video') matchesFilter = tag.includes('video');
+                    else if (activeFilter === 'graded') matchesFilter = isQuiz && !text.includes('not graded');
+                    else if (activeFilter === 'grpa') matchesFilter = isGrPA;
+                    else if (activeFilter === 'assets') matchesFilter = item.hasAssets;
+                    else if (activeFilter === 'command') matchesFilter = item.actionId || bread.includes('system');
+                    else matchesFilter = false;
+                }
+                
+                if (matchesFilter) {
+                   let group = 'COURSE OUTLINE';
+                   if (item.actionId || bread.includes('system')) group = 'SYSTEM COMMANDS';
+                   else if (isExam) group = 'PROGRAMMING EXAMS (OPPE/NPPE)';
+                   else if (tag.includes('video')) group = 'LECTURE VIDEOS';
+                   else if (isGrPA) group = 'PROGRAMMING ASSIGNMENTS';
+                   else if (isQuiz) group = 'GRADED ASSIGNMENTS & QUIZZES';
+                   
+                   groupMap[group] = groupMap[group] || [];
+                   groupMap[group].push(item);
+                }
             });
+
+            currentMatches = [];
+            Object.keys(groupMap).forEach(groupName => {
+                const groupItems = groupMap[groupName];
+                if (groupItems.length === 0) return;
+
+                const query = input.value.toLowerCase().trim();
+                let isCollapsed = collapsedGroups.has(groupName);
+                if (query.length > 0) isCollapsed = false; // Auto-expand when searching
+                
+                const header = document.createElement('div');
+                header.className = `group-header ${isCollapsed ? 'collapsed' : ''}`;
+                header.style.cursor = 'pointer';
+                header.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:8px; transition:0.2s; transform: rotate(${isCollapsed ? '-90deg' : '0deg'})">▼</span>
+                        <span>${groupName}</span>
+                    </div>
+                    <span style="opacity:0.3; font-weight:800;">${groupItems.length}</span>
+                `;
+                
+                header.onclick = (e) => {
+                    e.stopPropagation();
+                    if (collapsedGroups.has(groupName)) collapsedGroups.delete(groupName);
+                    else collapsedGroups.add(groupName);
+                    localStorage.setItem('iitm-collapsed-groups', JSON.stringify(Array.from(collapsedGroups)));
+                    renderResults(items, true);
+                };
+                results.appendChild(header);
+
+                if (!isCollapsed) {
+                    groupItems.forEach(item => {
+                        currentMatches.push(item);
+                        const isSelectedStored = selectedItems.has(item.text);
+                        const div = document.createElement('div');
+                        const isCurrentlySelected = selectedIndex >= 0 && currentMatches.length - 1 === selectedIndex;
+                        div.className = `spotlight-item ${isCurrentlySelected ? 'active' : ''}`;
+                        
+                        div.innerHTML = `
+                            <div style="flex: 1;">
+                                <div class="breadcrumb" style="font-size: 9px; opacity: 0.5; margin-bottom: 2px;">${item.breadcrumb || 'Course'}</div>
+                                <div class="title" style="color: ${isSelectedStored ? '#db2777' : '#eee'}; font-weight: ${isSelectedStored ? '800' : '500'}; font-size: 14px;">
+                                    ${isSelectedStored ? '✨ ' : ''}${item.text}
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                ${isSelectedStored ? '<span style="font-size:9px; color:#db2777; font-weight:900; background:rgba(219,39,119,0.1); padding:2px 8px; border-radius:10px;">SELECTED</span>' : ''}
+                                <div class="type" style="font-size: 9px; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); color: #888; border: 1px solid rgba(255,255,255,0.1); text-transform: uppercase; font-weight: 800;">${item.typeLabel}</div>
+                            </div>
+                        `;
+
+                        div.onclick = () => {
+                            if (item.actionId) {
+                                if (item.actionId === 'toggleAssets') {
+                                    includeAssets = !includeAssets;
+                                    localStorage.setItem('iitm-include-assets', includeAssets);
+                                    const assetBtn = document.getElementById('asset-toggle-btn');
+                                    if (assetBtn) {
+                                        assetBtn.classList.toggle('active', includeAssets);
+                                        assetBtn.innerText = `Assets: ${includeAssets ? 'ON' : 'OFF'}`;
+                                    }
+                                    const indicator = document.getElementById('asset-indicator');
+                                    if (indicator) indicator.style.display = includeAssets ? 'flex' : 'none';
+                                    input.oninput(null, true);
+                                } else if (item.actionId === 'reloadExtension') {
+                                    spotlight.style.display = 'none';
+                                    chrome.runtime.sendMessage({ action: 'reloadExtension' });
+                                } else if (item.actionId.includes('explain')) {
+                                    spotlight.style.display = 'none';
+                                    openInAI(item.actionId.replace('explain', '').toLowerCase());
+                                } else {
+                                    spotlight.style.display = 'none';
+                                    handleUIToggle(item.actionId);
+                                }
+                            } else {
+                                spotlight.style.display = 'none';
+                                if (item.el) (item.el.closest('button') || item.el).click();
+                                else if (item.url) window.location.href = item.url;
+                            }
+                        };
+                        results.appendChild(div);
+                    });
+                }
+            });
+
+            if (!preserveSelection) selectedIndex = currentMatches.length > 0 ? 0 : -1;
+            updateSelection(results.querySelectorAll('.spotlight-item'));
         };
 
         const getItems = () => {
@@ -867,23 +1088,27 @@
                 const subItems = weekEl.querySelectorAll('.units__subitems');
                 subItems.forEach(sub => {
                     const titleText = sub.querySelector('.units__subitems-title span')?.innerText.trim() || sub.innerText.split('\n')[0].trim();
-                    const subTag = sub.querySelector('.units__subitems-videos')?.innerText.trim() || 'Lesson';
+                    const subText = sub.innerText.toLowerCase();
+                    const subTagText = sub.querySelector('.units__subitems-videos')?.innerText.trim() || 'Lesson';
+                    const isProgramming = subText.includes('programming assignment') || subText.includes('programming question') || subText.includes('grpa');
                     
                     let color = '#2e7d32';
-                    let label = subTag;
+                    let label = subTagText;
                     
-                    if (subTag.toLowerCase().includes('video') || titleText.startsWith('L') || titleText.toLowerCase().includes('lecture')) {
+                    if (subTagText.toLowerCase().includes('video') || titleText.startsWith('L') || titleText.toLowerCase().includes('lecture')) {
                         color = '#c62828';
                         label = 'Video';
-                    } else if (titleText.toLowerCase().includes('grpa')) {
+                    } else if (isProgramming) {
                         color = '#6a1b9a';
                         label = 'GrPA';
-                    } else if (subTag.toLowerCase().includes('assignment') || titleText.toLowerCase().includes('assignment')) {
+                    } else if (subTagText.toLowerCase().includes('assignment') || titleText.toLowerCase().includes('assignment') || subText.includes('quiz')) {
                         color = '#ef6c00';
-                        const isGradedMatch = titleText.toLowerCase().includes('graded') || subTag.toLowerCase().includes('graded');
-                        const isNotGraded = titleText.toLowerCase().includes('not graded') || titleText.toLowerCase().includes('un-graded');
-                        label = (isGradedMatch && !isNotGraded) ? 'Graded' : 'Practice';
+                        const isNotGraded = titleText.toLowerCase().includes('not graded') || titleText.toLowerCase().includes('un-graded') || titleText.toLowerCase().includes('practice');
+                        label = isNotGraded ? 'Practice' : 'Graded';
                     }
+                    
+                    const hasAssets = !!(sub.querySelector('mat-icon') && subText.includes('resource')) || !!sub.querySelector('.units__subitems-resources') || (subText.includes('pdf') || subText.includes('slides'));
+                    const isGraded = label === 'Graded' || label === 'GrPA' || (!titleText.toLowerCase().includes('not graded') && !titleText.toLowerCase().includes('practice') && !titleText.toLowerCase().includes('mock'));
                     
                     allItems.push({
                         text: titleText,
@@ -891,7 +1116,10 @@
                         el: sub,
                         isSub: true,
                         typeLabel: label,
-                        color: color
+                        color: color,
+                        hasAssets: hasAssets,
+                        isProgramming: isProgramming,
+                        isGraded: isGraded
                     });
                 });
             });
@@ -908,7 +1136,9 @@
                 { text: '🤖 Explain Page with ChatGPT', typeLabel: 'Action', el: null, action: 'explainChatGPT' },
                 { text: '🧠 Solve with Claude', typeLabel: 'Action', el: null, action: 'explainClaude' },
                 { text: '✨ Brainstorm with Gemini', typeLabel: 'Action', el: null, action: 'explainGemini' },
-                { text: '📦 Bulk Export All Weeks (Export All)', typeLabel: 'Action', el: null, action: 'bulkExport' }
+                { text: `📦 ${includeAssets ? 'DISABLE' : 'ENABLE'} Asset Scraper (PDFs/Resources)`, typeLabel: 'Action', el: null, action: 'toggleAssets' },
+                { text: '📦 Bulk Export All Weeks (Export All)', typeLabel: 'Action', el: null, action: 'bulkExport' },
+                { text: '🔄 RELOAD Extension (Developer)', typeLabel: 'Action', el: null, action: 'reloadExtension' }
             ];
 
             actions.forEach(act => {
@@ -922,6 +1152,20 @@
                     actionId: act.action
                 });
             });
+
+            // ADD INDEXED TRANSCRIPTS TO SEARCH
+            indexedTranscripts.forEach(t => {
+                allItems.push({
+                    text: `Deep: ${t.title}`,
+                    breadcrumb: `Transcript: ${t.course}`,
+                    el: null,
+                    isSub: true,
+                    typeLabel: 'Transcript',
+                    color: '#00897b',
+                    url: t.url,
+                    searchText: t.text // Used for indexing but not displayed directly
+                });
+            });
             
             return allItems;
         };
@@ -930,150 +1174,188 @@
         let selectedIndex = -1;
         let currentMatches = [];
 
-        input.onkeydown = (e) => {
+        // GLOBAL SPOTLIGHT NAVIGATION (Works even when not focusing input specifically)
+        spotlight.onkeydown = (e) => {
             const items = results.querySelectorAll('.spotlight-item');
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+                selectedIndex = Math.min(selectedIndex + (e.altKey ? 5 : 1), items.length - 1);
                 updateSelection(items);
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                selectedIndex = Math.max(selectedIndex - 1, -1);
+                selectedIndex = Math.max(selectedIndex - (e.altKey ? 5 : 1), -1);
                 updateSelection(items);
             } else if (e.key === 'Tab') {
                 e.preventDefault();
                 if (selectedIndex >= 0) {
                     const itemData = currentMatches[selectedIndex];
-                    if (itemData && itemData.isSub && !itemData.actionId) {
+                    if (itemData) {
                         if (selectedItems.has(itemData.text)) selectedItems.delete(itemData.text);
                         else selectedItems.add(itemData.text);
-                        renderResults(currentMatches); 
-                        updateSelection(results.querySelectorAll('.spotlight-item'));
+                        input.oninput(null, true);
                     }
                 }
             } else if (e.key === 'Enter' && selectedIndex >= 0) {
                 items[selectedIndex].click();
-            } else if (e.key === 'k' && e.metaKey) {
+            } else if (e.key === 'j' && e.metaKey) {
                 e.preventDefault();
-                showActionSubmenu(currentMatches[selectedIndex]);
+                e.stopPropagation();
+                
+                const existing = document.getElementById('spotlight-action-submenu');
+                if (existing) existing.remove();
+                else showActionSubmenu(currentMatches[selectedIndex] || null);
             }
         };
 
         const showActionSubmenu = (item) => {
-            if (!item) return;
-            const actionContainer = document.createElement('div');
-            actionContainer.id = 'spotlight-action-submenu';
-            actionContainer.style.cssText = `
-                position: absolute; bottom: 60px; right: 30px; width: 220px;
-                background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            const container = document.createElement('div');
+            container.id = 'spotlight-action-submenu';
+            container.style.cssText = `
+                position: absolute; bottom: 65px; right: 25px; width: 260px;
+                background: rgba(22, 22, 22, 0.98); border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.9);
                 display: flex; flex-direction: column; overflow: hidden; z-index: 10005;
-                animation: slideUp 0.2s ease;
+                animation: slideUp 0.15s cubic-bezier(0.19, 1, 0.22, 1);
             `;
             
-            const itemActions = [
-                { name: 'Primary Action (Open)', key: '↵', run: () => (item.el.closest('button') || item.el).click() },
-                { name: 'Toggle Selection', key: '⇥', run: () => {
-                    if (selectedItems.has(item.text)) selectedItems.delete(item.text);
-                    else selectedItems.add(item.text);
-                    renderResults(matches);
-                } },
-                { name: 'Scrape Context Only', key: 'S', run: () => {
-                   (item.el.closest('button') || item.el).click();
-                   setTimeout(() => chrome.runtime.sendMessage({ action: 'triggerScraper' }), 1000);
-                } }
+            let allActions = [
+                { name: 'Bulk Export All Weeks', key: 'B', run: () => bulkScrapeAll(), global: true },
+                { name: 'Toggle Assets Scraper', key: 'A', run: () => {
+                    includeAssets = !includeAssets;
+                    localStorage.setItem('iitm-include-assets', includeAssets);
+                    const indicator = document.getElementById('asset-indicator');
+                    if (indicator) indicator.style.display = includeAssets ? 'flex' : 'none';
+                    const status = document.getElementById('footer-assets-status');
+                    if (status) status.innerText = `(${includeAssets ? 'ASSETS ON' : 'ASSETS OFF'})`;
+                    input.oninput(null, true);
+                }, global: true },
+                { name: 'Reload Extension', key: 'R', run: () => {
+                    spotlight.style.display = 'none';
+                    chrome.runtime.sendMessage({ action: 'reloadExtension' });
+                }, global: true }
             ];
 
-            actionContainer.innerHTML = itemActions.map(a => `
-                <div class="submenu-item" style="padding:10px 15px; display:flex; justify-content:space-between; cursor:pointer; font-size:12px; border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <span style="color:#eee;">${a.name}</span>
-                    <span style="color:#555; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; font-size:10px;">${a.key}</span>
-                </div>
-            `).join('');
-
-            results.parentNode.appendChild(actionContainer);
-            
-            const closeSub = (e) => {
-                if (!actionContainer.contains(e.target)) {
-                    actionContainer.remove();
-                    document.removeEventListener('click', closeSub);
-                }
-            };
-            setTimeout(() => document.addEventListener('click', closeSub), 10);
-
-            actionContainer.querySelectorAll('.submenu-item').forEach((div, i) => {
-                div.onclick = () => {
-                    itemActions[i].run();
-                    actionContainer.remove();
-                };
-            });
-        };
-
-        const updateSelection = (items) => {
-            items.forEach((item, idx) => {
-                if (idx === selectedIndex) item.classList.add('active');
-                else item.classList.remove('active');
-                item.style.background = idx === selectedIndex ? 'rgba(21, 101, 192, 0.3)' : '';
-                if (idx === selectedIndex) item.scrollIntoView({ block: 'nearest' });
-            });
-        };
-
-        input.oninput = () => {
-            const query = input.value.toLowerCase().trim();
-            const items = getItems();
-            selectedIndex = -1; 
-            
-            if (!query) {
-                currentMatches = items; // Update currentMatches for empty query
-                renderResults(items);
-                return;
+            if (item) {
+                allActions.unshift(
+                    { name: `Open "${item.text.substring(0,20)}..."`, key: '↵', run: () => item.onclick() },
+                    { name: 'Toggle Selection', key: 'Tab', run: () => {
+                        if (selectedItems.has(item.text)) selectedItems.delete(item.text);
+                        else selectedItems.add(item.text);
+                        input.oninput(null, true); 
+                    } },
+                    { name: 'Scrape Unit Only', key: 'S', run: () => {
+                        if (item.el) (item.el.closest('button') || item.el).click();
+                        setTimeout(() => chrome.runtime.sendMessage({ action: 'triggerScraper' }), 1000);
+                    } }
+                );
             }
 
-            const words = query.split(/\s+/);
-            const matches = items.filter(item => 
-                words.every(word => 
-                    (item.text && item.text.toLowerCase().includes(word)) || 
-                    (item.breadcrumb && item.breadcrumb.toLowerCase().includes(word)) ||
-                    (item.typeLabel && item.typeLabel.toLowerCase().includes(word))
-                )
-            );
+            container.innerHTML = `
+                <div style="padding:10px; background:rgba(255,255,255,0.02); border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <input type="text" id="action-search" placeholder="Search actions..." style="width:100%; background:none; border:none; color:#eee; font-size:11px; outline:none; height:20px;">
+                </div>
+                <div id="action-list" style="max-height: 300px; overflow-y: auto;"></div>
+            `;
             
-            currentMatches = matches; // Update currentMatches here
-            renderResults(matches);
+            const renderActions = (filter = '') => {
+                const list = container.querySelector('#action-list');
+                const filtered = allActions.filter(a => a.name.toLowerCase().includes(filter.toLowerCase()));
+                list.innerHTML = filtered.map((a, i) => `
+                    <div class="action-item ${i === 0 ? 'selected' : ''}" data-index="${i}" style="padding:10px 15px; display:flex; justify-content:space-between; cursor:pointer; font-size:12px; border-bottom:1px solid rgba(255,255,255,0.03); ${i === 0 ? 'background:rgba(219,39,119,0.1);' : ''}">
+                        <span style="color:#eee;">${a.name}</span>
+                        <span style="color:#666; font-size:10px; font-weight:900;">${a.key}</span>
+                    </div>
+                `).join('');
+                
+                list.querySelectorAll('.action-item').forEach((div, i) => {
+                    div.onclick = () => { filtered[i].run(); container.remove(); };
+                });
+            };
+
+            results.parentNode.appendChild(container);
+            renderActions();
+            
+            const actionInput = container.querySelector('#action-search');
+            actionInput.focus();
+            actionInput.oninput = () => renderActions(actionInput.value);
+            actionInput.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    const first = container.querySelector('.action-item');
+                    if (first) first.click();
+                } else if (e.key === 'Escape' || (e.key === 'j' && e.metaKey)) {
+                    e.preventDefault();
+                    container.remove();
+                }
+            };
+
+            const closeSub = (e) => {
+                if (!container.contains(e.target)) {
+                    container.remove();
+                    document.removeEventListener('mousedown', closeSub);
+                }
+            };
+            setTimeout(() => document.addEventListener('mousedown', closeSub), 10);
+        };
+
+        const updateSelection = (resultsList) => {
+            resultsList.forEach((el, i) => {
+                if (i === selectedIndex) {
+                    el.classList.add('active');
+                    el.scrollIntoView({ block: 'nearest' });
+                    updatePreview(currentMatches[i]);
+                } else {
+                    el.classList.remove('active');
+                }
+            });
         };
 
         const updatePlaceholder = () => {
             const count = document.querySelectorAll('.units__subitems').length;
-            if (count < 10) {
-                input.placeholder = "Expand weeks in sidebar to search lessons...";
-            } else {
-                input.placeholder = "Jump to Week or Lesson...";
-            }
+            input.placeholder = count < 10 ? "Expand weeks in sidebar to search..." : "Search for apps and commands...";
         };
 
-        // Handle Filters
-        addGlobalListener('click', '.filter-chip', (e) => {
-            document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
-            const chip = e.target.closest('.filter-chip');
-            if (!chip) return;
-            chip.classList.add('active');
-            activeFilter = chip.dataset.filter;
-            input.oninput(); // Refresh results
+        // Filter chips logic
+        spotlight.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.onclick = () => {
+                spotlight.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                activeFilter = chip.dataset.filter;
+                input.oninput();
+            };
         });
 
-        // Show items by default on focus if empty
+        input.oninput = (e, preserveSelection = false) => {
+            const query = input.value.toLowerCase().trim();
+            const items = getItems();
+            
+            const words = query.split(/\s+/).filter(Boolean);
+            const matches = items.map(item => {
+                let score = 0;
+                const text = (item.text || '').toLowerCase();
+                const bread = (item.breadcrumb || '').toLowerCase();
+                const deep = (item.searchText || '').toLowerCase();
+                words.forEach(word => {
+                    if (text === word) score += 100;
+                    else if (text.startsWith(word)) score += 50;
+                    else if (text.includes(word)) score += 10;
+                    if (bread.includes(word)) score += 5;
+                    if (deep && deep.includes(word)) score += 3;
+                });
+                return { ...item, score };
+            }).filter(item => item.score > 0 || words.length === 0)
+              .sort((a, b) => b.score - a.score);
+
+            renderResults(matches, preserveSelection);
+        };
+
         input.onfocus = () => { 
             updatePlaceholder();
             const items = getItems();
-            currentMatches = items;
             renderResults(items); 
         };
-        
-        // Syllabus Export Trigger
-        addGlobalListener('click', '#syllabus-export-btn', () => {
-            chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'exportSyllabus' });
-            spotlight.style.display = 'none';
-        });
+
+        // Populate results immediately on first load
+        renderResults(getItems());
     };
 
     // 3. SCORE CHECKER TOOLS
@@ -1107,11 +1389,11 @@
                     tools.innerHTML = `
                         ${closeBtn}
                         <div style="flex:1; min-width:200px;">
-                            <h4 style="margin:0; font-size:16px; font-weight:700; color:#333;">Scraper Toolkit</h4>
-                            <p style="margin:0; font-size:12px; opacity:0.6;">Save your course performance as Markdown.</p>
+                            <h4 style="margin:0; font-size:16px; font-weight:700; color:#333;">Quiz Scraper Toolkit</h4>
+                            <p style="margin:0; font-size:12px; opacity:0.6;">Export your Quiz (Quiz 1/2/3) results as Markdown.</p>
                         </div>
-                        <button class="btn btn-primary" id="iitm-export-all-btn" style="font-weight: bold; border-radius: 10px; padding: 10px 20px; box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);">🚀 Export All Detailed Scores</button>
-                        <button class="btn btn-outline-secondary" id="iitm-export-this-btn" style="border-radius: 10px; padding: 10px 20px;">📝 Save Overview Only</button>
+                        <button class="btn btn-primary" id="iitm-export-all-btn" style="font-weight: bold; border-radius: 10px; padding: 10px 20px; box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);">🚀 Export All Detailed Quiz Scores</button>
+                        <button class="btn btn-outline-secondary" id="iitm-export-this-btn" style="border-radius: 10px; padding: 10px 20px;">📝 Save Quiz Overview Only</button>
                     `;
                     container.insertBefore(tools, container.firstChild);
                     document.getElementById('iitm-export-all-btn').onclick = () => chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'consolidateAll' });
@@ -1120,13 +1402,36 @@
                     tools.innerHTML = `
                         ${closeBtn}
                         <div style="flex:1; min-width:150px;">
-                            <h4 style="margin:0; font-size:16px; font-weight:700; color:#333;">Detailed Scraper</h4>
+                            <h4 style="margin:0; font-size:16px; font-weight:700; color:#333;">Detailed Quiz Scraper</h4>
                         </div>
-                        <button class="btn btn-info text-white" id="iitm-export-detail-btn" style="border-radius: 10px; font-weight: bold; padding: 10px 20px; border:none; background: #17a2b8;">📝 Export Page Results</button>
+                        <button class="btn btn-info text-white" id="iitm-export-detail-btn" style="border-radius: 10px; font-weight: bold; padding: 10px 20px; border:none; background: #17a2b8;">📝 Export Quiz Result</button>
                         <a href="/course_wise" class="btn btn-link btn-sm" style="color: #6c757d;">← Back to Overview</a>
                     `;
                     container.insertBefore(tools, container.firstChild);
                     document.getElementById('iitm-export-detail-btn').onclick = () => chrome.runtime.sendMessage({ action: 'triggerScraper' });
+                    
+                    // Grade Projection Logic
+                    const rows = Array.from(document.querySelectorAll('table tr')).slice(1);
+                    let gradedTotal = 0, gradedCount = 0;
+                    rows.forEach(r => {
+                        const score = parseFloat(r.querySelector('td:last-child')?.innerText);
+                        if (!isNaN(score)) { gradedTotal += score; gradedCount++; }
+                    });
+                    
+                    const totalCount = rows.length;
+                    const remainingCount = totalCount - gradedCount;
+                    const avg = gradedCount > 0 ? (gradedTotal / gradedCount).toFixed(2) : 0;
+                    const reqForS = remainingCount > 0 ? Math.max(0, (85 * totalCount - gradedTotal) / remainingCount).toFixed(2) : 'N/A';
+                    
+                    const projection = document.createElement('div');
+                    projection.style.cssText = "width:100%; margin-top:15px; padding:15px; background:rgba(219,39,119,0.05); border:1px dashed #db2777; border-radius:12px; font-size:13px; color:#444;";
+                    projection.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span>🎯 <b>Grade Projection:</b> Quiz Avg: <b>${avg}</b></span>
+                            <span style="color:#db2777; font-weight:800;">To get 'S': Need <b>${reqForS}</b> in remaining ${remainingCount} quizzes</span>
+                        </div>
+                    `;
+                    tools.appendChild(projection);
                 }
                 addGlobalListener('click', '.close-score-tools', () => tools.style.display = 'none');
                 console.log('✅ IITM Scraper: Injected tools into container');
@@ -1203,7 +1508,7 @@
 
     // 3. SIDEBAR PROGRESS TRACKER (FIXED: Integrated & Live Updates)
     const injectProgressTracker = () => {
-        const list = document.querySelector('.units__list');
+        const list = document.querySelector('.units__list') || document.querySelector('mat-nav-list') || document.querySelector('mat-sidenav .mat-drawer-inner-container');
         if (!list) return;
 
         let card = document.getElementById('iitm-progress-card');
@@ -1212,7 +1517,8 @@
             card.id = 'iitm-progress-card';
             card.style.cssText = `
                 margin: 15px; padding: 15px; border-radius: 12px;
-                position: relative; z-index: 10;
+                position: relative; z-index: 10; background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.1);
             `;
             list.insertBefore(card, list.firstChild);
         }
@@ -1229,47 +1535,50 @@
         subItems.forEach(item => {
             const t = item.innerText.toLowerCase();
             const tag = item.querySelector('.units__subitems-videos')?.innerText.toLowerCase() || '';
-            const isDone = !!item.querySelector('.submitted-icon');
+            // Robust completion detection: Tick marks, submitted icons, and mat-icon done states
+            const isDone = !!(
+                item.querySelector('.submitted-icon, .units__subitems-videos-done, mat-icon.done') || 
+                item.innerText.includes('check_circle') || 
+                item.innerText.includes('check') ||
+                item.classList.contains('completed')
+            );
             
-            // Core Filters
             const isNote = t.includes('not graded') || t.includes('practice') || t.includes('mock') || t.includes('non-graded');
-            const isGrPA = t.includes('grpa'); 
-            const isQuiz = t.includes('quiz') || t.includes('exam');
-            const isGraded = t.includes('graded') && !isGrPA && !isQuiz && !isNote;
+            const isGrPA = t.includes('grpa') || (t.includes('programming') && t.includes('graded')) || (t.includes('graded') && t.includes('assignment'));
+            const isQuiz = (t.includes('quiz') || t.includes('exam')) && !isNote;
 
             if (tag.includes('video')) {
                 stats.totalVideos++;
                 if (isDone) stats.videos++;
             } else if (isGrPA) {
+                // Focus completion ONLY on these (Graded Programming / GrPA)
                 stats.totalGrpa++;
                 if (isDone) stats.grpa++;
             } else if (isQuiz) {
-                if (isNote) return; 
                 stats.totalQuizzes++;
                 if (isDone) stats.quizzes++;
-            } else if (isGraded) {
+            } else if (!isNote) {
                 stats.totalGraded++;
                 if (isDone) stats.graded++;
             }
         });
 
-        const done = stats.graded + stats.grpa + stats.quizzes;
-        const total = stats.totalGraded + stats.totalGrpa + stats.totalQuizzes;
+        const done = stats.grpa;
+        const total = stats.totalGrpa;
         const progress = total > 0 ? Math.round((done / total) * 100) : 0;
 
-        // Only update if content changed or if it was 0/0
         card.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <span class="progress-label" style="font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.5px;">Course Progress</span>
-                <span style="font-weight:900; color:#1e88e5; font-size:13px;">${progress}%</span>
+                <span class="progress-label" style="font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.5px;">Graded Prog Completion</span>
+                <span style="font-weight:900; color:#db2777; font-size:13px;">${progress}%</span>
             </div>
-            <div class="progress-bg" style="width:100%; height:8px; border-radius:4px; margin-bottom:12px; overflow:hidden;">
-                <div style="width:${progress}%; height:100%; background:#1e88e5; border-radius:4px; transition: width 1.2s cubic-bezier(0.19, 1, 0.22, 1);"></div>
+            <div class="progress-bg" style="width:100%; height:8px; border-radius:4px; margin-bottom:12px; overflow:hidden; background:rgba(255,255,255,0.05);">
+                <div style="width:${progress}%; height:100%; background:linear-gradient(90deg, #db2777, #7e22ce); border-radius:4px; transition: width 1.2s cubic-bezier(0.19, 1, 0.22, 1);"></div>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:10px; font-weight:700;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; font-size:10px; font-weight:700;">
                 <div style="display:flex; align-items:center; gap:6px;"><span style="filter:grayscale(0.6);">🎬</span> Videos: ${stats.videos}/${stats.totalVideos}</div>
                 <div style="display:flex; align-items:center; gap:6px;"><span style="filter:grayscale(0.6);">📝</span> Graded: ${stats.graded}/${stats.totalGraded}</div>
-                <div style="display:flex; align-items:center; gap:6px;"><span style="color:#9c27b0;">💻</span> GrPA: ${stats.grpa}/${stats.totalGrpa}</div>
+                <div style="display:flex; align-items:center; gap:6px;"><span style="color:#db2777;">💻</span> GrPA/GA: ${stats.grpa}/${stats.totalGrpa}</div>
                 <div style="display:flex; align-items:center; gap:6px;"><span style="color:#ef6c00;">🏆</span> Quizzes: ${stats.quizzes}/${stats.totalQuizzes}</div>
             </div>
         `;
@@ -1279,13 +1588,13 @@
 
     // Auto-Loader loop (Reduced frequency for site speed)
     setInterval(() => {
-        injectHeaderUtils();
-        injectHeaderSearch();
-        injectSpotlight();
-        injectFocusBar();
-        injectProgressTracker();
-        injectScoreCheckerTools();
-        injectGlobalTimer();
+        setupSpotlightListeners();
+        if (!document.getElementById('iitm-header-utils')) injectHeaderUtils();
+        if (!document.getElementById('iitm-header-search')) injectHeaderSearch();
+        if (!document.getElementById('iitm-spotlight')) injectSpotlight();
+        if (!document.getElementById('iitm-focus-bar-container')) injectFocusBar();
+        if (!document.getElementById('iitm-progress-card')) injectProgressTracker();
+        injectScoreCheckerTools(); // Has its own check
         autoCloseSidebar();
     }, 2500);
 
