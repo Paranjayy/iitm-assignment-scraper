@@ -38,6 +38,14 @@
                 <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #d97757;"><path fill="currentColor" d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z"/></svg>
                 Claude
             </div>
+            <div class="ai-option" data-service="grok">
+                <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #fff;"><path fill="currentColor" d="M18.9 3.5c-.8 0-1.5.7-1.5 1.5v14c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V5c0-.8-.7-1.5-1.5-1.5zm-5 0c-.8 0-1.5.7-1.5 1.5v14c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V5c0-.8-.7-1.5-1.5-1.5zm-5 0c-.8 0-1.5.7-1.5 1.5v14c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V5c0-.8-.7-1.5-1.5-1.5z"/></svg>
+                Grok
+            </div>
+            <div class="ai-option" data-service="cursor">
+                <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #3b82f6;"><path fill="currentColor" d="M13 1.07l1 .39 7 6.68a1.11 1.11 0 0 1 0 1.58l-7 6.68-1 .39a1.18 1.18 0 0 1-1.18 0l-1-.39-7-6.68a1.11 1.11 0 0 1 0-1.58l7-6.68 1-.39a1.18 1.18 0 0 1 1.18 0z"/></svg>
+                Cursor
+            </div>
             <div class="ai-option" data-service="scira">
                 <svg viewBox="0 0 24 24" class="ai-icon-svg" style="color: #1e88e5;"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                 Scira AI

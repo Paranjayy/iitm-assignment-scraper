@@ -4,6 +4,7 @@
     const body = document.body;
     let activeFilter = 'all';
     let isTimerDismissed = false; 
+    const selectedItems = new Set(); // Persistent selection storage
 
     // 4. AI EXPLANATION (Chanhdai Style)
     const openInAI = async (service) => {
@@ -71,7 +72,9 @@
         const urls = {
             chatgpt: `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`,
             claude: `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
-            scira: `https://scira.ai/?q=${encodeURIComponent(prompt)}`
+            scira: `https://scira.ai/?q=${encodeURIComponent(prompt)}`,
+            grok: `https://grok.com/?q=${encodeURIComponent(prompt)}`,
+            cursor: `https://cursor.com/link/prompt?text=${encodeURIComponent(prompt)}`
         };
 
         window.open(urls[service] || urls.chatgpt, '_blank');
@@ -88,13 +91,19 @@
 
     // 5. BULK EXPORT ALL WEEKS (Enhanced with Selection)
     const bulkScrapeAll = async () => {
-        // Collect checkboxes
-        const checkboxes = Array.from(document.querySelectorAll('.iitm-selection-checkbox:checked'));
+        // Collect items based on persistent set or visible checkboxes
         let subItems = [];
         
-        if (checkboxes.length > 0) {
-            subItems = checkboxes.map(cb => cb.closest('.units__subitems'));
-        } else {
+        if (selectedItems.size > 0) {
+            // Map the set IDs back to current DOM elements if possible, 
+            // but safer to just use the DOM for the count
+            subItems = Array.from(document.querySelectorAll('.units__subitems')).filter(item => {
+                const title = item.innerText.split('\n')[0].trim();
+                return selectedItems.has(title);
+            });
+        }
+
+        if (subItems.length === 0) {
             subItems = Array.from(document.querySelectorAll('.units__subitems'));
         }
 
@@ -1172,16 +1181,27 @@
         if (items.length === 0) return;
 
         items.forEach(item => {
-            if (item.querySelector('.iitm-selection-checkbox')) return;
+            const title = item.innerText.split('\n')[0].trim();
+            if (item.querySelector('.iitm-selection-checkbox')) {
+                // Just update the checked state if already exists
+                item.querySelector('.iitm-selection-checkbox').checked = selectedItems.has(title);
+                return;
+            }
             
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.className = 'iitm-selection-checkbox';
+            cb.checked = selectedItems.has(title);
             cb.style.cssText = `
                 width: 14px; height: 14px; margin-right: 10px; cursor: pointer;
                 accent-color: #db2777;
             `;
-            cb.onclick = (e) => e.stopPropagation();
+            cb.onclick = (e) => {
+                e.stopPropagation();
+                if (cb.checked) selectedItems.add(title);
+                else selectedItems.delete(title);
+                console.log('Selection updated:', selectedItems.size, 'items');
+            };
             
             // Inject after or before the title
             const titleContainer = item.querySelector('.units__subitems-title') || item;
@@ -1223,10 +1243,18 @@
             };
 
             document.getElementById('iitm-select-all-btn').onclick = () => {
-                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => cb.checked = true);
+                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => {
+                    const title = cb.closest('.units__subitems').innerText.split('\n')[0].trim();
+                    cb.checked = true;
+                    selectedItems.add(title);
+                });
             };
             document.getElementById('iitm-select-none-btn').onclick = () => {
-                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => cb.checked = false);
+                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => {
+                    const title = cb.closest('.units__subitems').innerText.split('\n')[0].trim();
+                    cb.checked = false;
+                    selectedItems.delete(title);
+                });
             };
             
             const btnStyle = document.createElement('style');
