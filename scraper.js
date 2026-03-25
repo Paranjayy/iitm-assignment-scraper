@@ -273,16 +273,27 @@
                     const currentBtn = document.querySelectorAll('app-tab-bar .tab-item')[i];
                     if (!currentBtn) continue;
 
-                    const tabName = currentBtn.innerText.trim();
-                    markdown += `## ${tabName}\n\n`;
-                    console.log(`Scraping tab ${i + 1}: ${tabName}`);
+                        const cleanTabName = tabName.toLowerCase().replace(/\s/g, '');
+                        console.log(`Scraping tab ${i + 1}: ${tabName} (clean: ${cleanTabName})`);
 
-                    currentBtn.click();
-                    await new Promise(r => setTimeout(r, 3000));
-                    await syncAce();
+                        currentBtn.click();
+                        // Wait for tab content and verify
+                        let tabSwitched = false;
+                        for (let attempt = 0; attempt < 10; attempt++) {
+                            await new Promise(r => setTimeout(r, 600));
+                            // Check if current view is actually the intended tab
+                            const activeTabNode = document.querySelector('app-tab-bar .tab-item.active');
+                            if (activeTabNode && activeTabNode.innerText.trim().toLowerCase() === tabName.toLowerCase()) {
+                                tabSwitched = true;
+                                break;
+                            }
+                        }
+                        if (!tabSwitched) console.warn(`⚠️ Tab ${tabName} may not have loaded correctly.`);
+                        
+                        await syncAce();
 
-                    try {
-                        if (tabName.toLowerCase() === 'test cases') {
+                        try {
+                            if (cleanTabName === 'testcases') {
                             const testTypes = document.querySelectorAll('.test-case-type-block');
                             if (testTypes.length > 0) {
                                 for (const typeBtn of testTypes) {
@@ -299,10 +310,10 @@
                                         const caseName = currentCaseBtn.innerText.trim();
                                         markdown += `#### ${caseName}\n\n`;
                                         currentCaseBtn.click();
-                                        await new Promise(r => setTimeout(r, 300));
+                                        await new Promise(r => setTimeout(r, 800)); // Increased for slow portal
 
-                                        const testCaseBlocks = document.querySelectorAll('.test-case-block');
-                                        testCaseBlocks.forEach(block => {
+                                        const currentCaseBlocks = document.querySelectorAll('.test-case-block');
+                                        currentCaseBlocks.forEach(block => {
                                             const title = block.querySelector('.test-case-block-title')?.innerText.trim();
                                             const content = block.querySelector('.test-case-block-content')?.innerText.trim();
                                             if (title && content) {
@@ -312,20 +323,32 @@
                                     }
                                 }
                             } else {
+                                // Fallback for simple test case lists
                                 const leftContent = document.querySelector('.left-content');
                                 if (leftContent) {
-                                    const clone = leftContent.cloneNode(true);
-                                    processNode(clone);
+                                    const clone = await processNode(leftContent.cloneNode(true));
                                     markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
                                 }
                             }
                         } else {
-                            // For Question, Overview, Solution, etc.
+                            // For Question, Overview, Solution, My Submission, etc.
                             const leftContent = document.querySelector('.left-content');
+                            const rightPanel = document.querySelector('.right-panel');
+                            
                             if (leftContent) {
-                                const clone = leftContent.cloneNode(true);
-                                processNode(clone);
+                                const clone = await processNode(leftContent.cloneNode(true));
                                 markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                            }
+                            
+                            // If on Solution/My Submission tab and code editor exists, capture it
+                            if ((tabName.toLowerCase().includes('solution') || tabName.toLowerCase().includes('submission')) && rightPanel) {
+                                await syncAce();
+                                const editor = rightPanel.querySelector('.ace_editor');
+                                if (editor) {
+                                    markdown += `### ${tabName} Code\n\n`;
+                                    const code = editor.getAttribute('data-full-code') || editor.querySelector('textarea.ace_text-input')?.value || editor.innerText;
+                                    markdown += `\`\`\`python\n${code.trimEnd()}\n\`\`\`\n\n`;
+                                }
                             }
                         }
                     } catch (err) {
@@ -515,28 +538,47 @@
         }
 
         /**
-         * Cleans a node of artifacts and reconstructs specialized elements like CodeMirror
+         * Cleans a node and processes it for markdown conversion
+         * IMPORTANT: This now supports ASYNC image processing for offline reliability
          */
-        function processNode(root) {
-            // 1. Remove obvious artifact elements first
-            // Also remove invisible Ace measurement layers but be VERY conservative
+        async function processNode(root) {
+            // 1. Convert Images to Base64 for truly offline reliable markdown
+            const images = Array.from(root.querySelectorAll('img'));
+            for (const img of images) {
+                try {
+                    const src = img.src;
+                    if (src && !src.startsWith('data:')) {
+                        console.log('🖼️ IITM Offline Scraper: Converting image to Base64:', src);
+                        const response = await fetch(src);
+                        const blob = await response.blob();
+                        const dataURI = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                        img.src = dataURI;
+                    }
+                } catch (e) {
+                    console.warn('❌ Failed to convert image to Base64:', img.src, e);
+                }
+            }
+
+            // 2. Remove obvious artifact elements first
             root.querySelectorAll('.CodeMirror-linenumber, .linenumber, .CodeMirror-measure, .CodeMirror-cursors, .CodeMirror-hscrollbar, .CodeMirror-vscrollbar, noscript, .ace_gutter, .ace_tooltip, .ace_print-margin-layer, .ace_marker-layer, .ace_cursor-layer').forEach(el => el.remove());
 
-            // Remove Ace measurement divs (identified by having visibility: hidden and typical measurement styles)
+            // Remove Ace measurement divs
             root.querySelectorAll('.ace_editor > div').forEach(div => {
                 if (div.style.visibility === 'hidden' || (div.style.position === 'absolute' && !div.classList.contains('ace_scroller') && !div.classList.contains('ace_gutter'))) {
                     div.remove();
                 }
             });
 
-            // 2. Specialized Code Block Reconstruction
-            // Search for containers within root, but ALSO check root itself
+            // 3. Specialized Code Block Reconstruction
             const selector = '.CodeMirror, .codemirror-container-readonly, .code-container, pre, .ace_editor';
             const containers = Array.from(root.querySelectorAll(selector));
             if (root.matches && root.matches(selector)) containers.unshift(root);
 
             containers.forEach(container => {
-                // If this is a nested element we already processed, skip
                 if (container.querySelector('code')) return;
 
                 let lines = [];
@@ -549,43 +591,22 @@
                     lines = fullCode.split(/\r?\n/);
                 } else if (aceLines.length > 0) {
                     aceLines.forEach(lineEl => {
-                        // Reliable node walking fallback for virtual scrolling
                         const lineClone = lineEl.cloneNode(true);
-                        // Strip out visual-only overlays that interfere with text
                         lineClone.querySelectorAll('.ace_indent-guide').forEach(el => el.remove());
-                        const text = lineClone.textContent.replace(/\u200B/g, '');
-                        lines.push(text);
+                        lines.push(lineClone.textContent.replace(/\u200B/g, ''));
                     });
                 } else if (cmLines.length > 0) {
                     cmLines.forEach(lineEl => {
-                        // Use textContent to preserve all spacing
-                        let text = lineEl.textContent.replace(/\u200B/g, ''); // Remove zero-width spaces
-                        text = text.replace(/xxxxxxxxxx/g, '');
-                        lines.push(text);
+                        lines.push(lineEl.textContent.replace(/\u200B/g, '').replace(/xxxxxxxxxx/g, ''));
                     });
                 } else {
-                    // Fallback for non-cm pre tags or raw containers
-                    let raw = container.textContent;
-                    lines = raw.split('\n').map(l => l.replace(/xxxxxxxxxx/g, '').replace(/^\s*\d+\s{2,}/, ''));
+                    lines = container.textContent.split('\n').map(l => l.replace(/xxxxxxxxxx/g, '').replace(/^\s*\d+\s{2,}/, ''));
                 }
 
                 const pre = document.createElement('pre');
                 const code = document.createElement('code');
-
-                // Try to detect programming language from the UI or Ace mode
                 let lang = container.getAttribute('data-ace-mode') || container.getAttribute('data-mode') || 'python';
-                if (!container.getAttribute('data-ace-mode')) {
-                    const langSelector = container.closest('.right-panel, .left-panel')?.querySelector('.mat-mdc-select-value-text');
-                    if (langSelector) {
-                        const selectedLang = langSelector.innerText.toLowerCase();
-                        if (selectedLang.includes('python')) lang = 'python';
-                        else if (selectedLang.includes('java')) lang = 'java';
-                        else if (selectedLang.includes('c++')) lang = 'cpp';
-                        else if (selectedLang.includes('c ')) lang = 'c';
-                        else if (selectedLang.includes('javascript')) lang = 'javascript';
-                    }
-                }
-
+                
                 code.className = `language-${lang}`;
                 code.textContent = lines.join('\n').trimEnd();
                 pre.appendChild(code);
@@ -595,23 +616,22 @@
                 }
             });
 
-            // 3. Clean xxxxxxxxxx from all remaining text nodes
+            // 4. Clean xxxxxxxxxx from text nodes
             const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
             let node;
-            const textNodes = [];
-            while (node = walker.nextNode()) textNodes.push(node);
-
-            textNodes.forEach(t => {
-                if (t.textContent.includes('xxxxxxxxxx')) {
-                    t.textContent = t.textContent.replace(/xxxxxxxxxx/g, '');
+            while (node = walker.nextNode()) {
+                if (node.textContent.includes('xxxxxxxxxx')) {
+                    node.textContent = node.textContent.replace(/xxxxxxxxxx/g, '');
                 }
-            });
+            }
 
-            // 4. Ensure tables have borders for better rendering in some viewers
+            // 5. Ensure tables have borders
             root.querySelectorAll('table').forEach(table => {
                 table.setAttribute('border', '1');
                 table.style.borderCollapse = 'collapse';
             });
+
+            return root;
         }
 
         async function finalizeExport() {

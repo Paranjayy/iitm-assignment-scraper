@@ -948,7 +948,11 @@
                 const tag = (item.typeLabel || '').toLowerCase();
                 const text = (item.text || '').toLowerCase();
                 const bread = (item.breadcrumb || '').toLowerCase();
+                const desc = (item.description || '').toLowerCase();
                 
+                const matchesSearch = text.includes(query) || bread.includes(query) || desc.includes(query) || tag.includes(query);
+                if (query && !matchesSearch) return;
+
                 let matchesFilter = true;
                 const isExam = text.includes('oppe') || text.includes('nppe') || bread.includes('oppe') || bread.includes('nppe');
                 const isGrPA = (item.isProgramming === true && item.isGraded === true) && !isExam; 
@@ -1113,6 +1117,7 @@
                     allItems.push({
                         text: titleText,
                         breadcrumb: weekTitle,
+                        description: subText, // Include the gray subtitle for search
                         el: sub,
                         isSub: true,
                         typeLabel: label,

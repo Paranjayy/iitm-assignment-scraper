@@ -1,171 +1,52 @@
-![GitHub Profile Views](https://gitviews.com/repo/paranjayy/iit-assignment-scraper.svg?color=%23f76707&label-color=black)
-# 🎓 IITM Assignment Scraper Chrome Extension
+# 🚀 IITM Portal Spotlight & Scraper
 
-A Chrome extension that converts IIT Madras online degree assignments into clean, readable Markdown files with a single click. No more copy-pasting from the DevTools console!
-
-![Extension Icon](images/icon48.png)
+A premium, Raycast-inspired command center and robust assignment scraper for the IIT Madras Online Degree portal.
 
 ## ✨ Features
 
-- **One-click export**: Simple toolbar button to scrape assignments
-- **Right-click context menu**: Export directly from right-click menu (no need to find the extension icon!)
-- **Clean Markdown format**: Well-structured output with proper formatting
-- **Course name in filename**: Automatically includes assignment and course title
-- **Math formula support**: Converts LaTeX/KaTeX equations to Markdown
-- **Checkbox preservation**: Maintains your selected answers with checkboxes
-- **Score & feedback**: Includes grading information and faculty answers
-- **Completely local**: No data sent anywhere - everything happens in your browser
-- **Ad-blocker friendly**: Bundled libraries prevent loading issues
+### 🔍 Spotlight Command Center (`⌘ K`)
+- **Global Search**: Find any lecture, assignment, or system command instantly.
+- **Extended Metadata**: Search by Week name, Description, Title, or Tag.
+- **Pinned Footer**: Real-time status indicators (Assets Toggle, Hover Hints).
+- **Smooth Navigation**: Arrow key browsing with `Alt + Up/Down` for category jumping.
+- **Categorized Results**: 
+    - 🚨 **PROGRAMMING EXAMS (OPPE/NPPE)** (Priority isolated)
+    - 💻 **PROGRAMMING ASSIGNMENTS** (GrPA/Programming Assignments)
+    - 📝 **GRADED ASSIGNMENTS & QUIZZES** (Graded ONLY)
+    - 🎥 **LECTURE VIDEOS**
+    - 📖 **COURSE OUTLINE** (Practice modules)
 
-## 🚀 Installation
+### 🧺 Advanced Scraper (`⌘ J` or Context Menu)
+- **Deep Scrape**: Exhaustively captures Problem statements, Test Cases (Public & Private), Solutions, and your own Submissions.
+- **Truly Offline Reliable**: Automatically converts and embeds images as Base64 DataURIs within the Markdown.
+- **Bulk Export**: Select multiple units with `⌘ Shift Click` and export them as a single ZIP with one click.
+- **Katex Support**: Renders complex math formulas correctly in Markdown.
 
-### Method 1: Download & Install (Recommended)
+### 📊 Study Suite
+- **Progress Tracker**: Accurate completion bars based on sidebar state.
+- **Focus Bar**: Integrated timer and quick reference boilerplates for programming assignments.
+- **Dark Mode**: High-contrast, sleek aesthetic for late-night sessions.
 
-1. **Download this repository**
-   ```bash
-   git clone https://github.com/[your-username]/iitm-assignment-scraper.git
-   cd iitm-assignment-scraper
-   ```
+## ⌨️ Shortcuts
 
-2. **Open Chrome Extensions page**
-   - Type `chrome://extensions` in your address bar
-   - OR go to Chrome Menu → More Tools → Extensions
+| Shortcut | Action |
+| :--- | :--- |
+| `⌘ K` | Open/Close Spotlight |
+| `⌘ J` | Open Action Menu (inside Spotlight) |
+| `⌘ Shift Click` | Select unit for Bulk Export |
+| `Alt ↑ / ↓` | Jump between Result Groups |
+| `Enter` | Open selected unit |
 
-3. **Enable Developer Mode**
-   - Toggle "Developer mode" in the top-right corner
+## 🛠️ Installation
 
-4. **Load the extension**
-   - Click "Load unpacked"
-   - Select the downloaded folder (containing `manifest.json`)
+1. Clone this repository: `git clone https://github.com/Paranjayy/iitm-assignment-scraper.git`
+2. Open Chrome/Arc and navigate to `chrome://extensions/`
+3. Enable **Developer Mode** (top right).
+4. Click **Load Unpacked** and select the extension folder.
 
-5. **Pin the extension** (optional)
-   - Click the puzzle piece icon in Chrome toolbar
-   - Pin the "IITM Assignment Scraper" for easy access
+## 🤝 Contribution
 
-### Method 2: Build from Source
-
-If you want to create custom icons or modify the extension:
-
-1. **Install Python dependencies**
-   ```bash
-   pip install Pillow
-   ```
-
-2. **Add your logo** (optional)
-   - Save your IIT Madras logo as `logo.png` in the project folder
-   - Run: `python convert_icon.py`
-   - This will create `icon16.png`, `icon48.png`, and `icon128.png` in the `images/` folder
-
-3. **Follow installation steps above**
-
-## 📖 Usage
-
-1. **Navigate to your assignment**
-   - Go to `https://seek.onlinedegree.iitm.ac.in`
-   - Open any graded assignment page
-
-2. **Export your assignment** (choose one method):
-   
-   **Method A: Right-click menu (Easiest!)**
-   - Right-click anywhere on the assignment page
-   - Select "📝 Export Assignment to Markdown"
-   
-   **Method B: Extension icon**
-   - Look for the IIT Madras logo in your Chrome toolbar
-   - Single click to start the export
-
-3. **Download your Markdown file**
-   - The file will automatically download
-   - Filename format: `Assignment_Name_-_Course_Name.md`
-
-## 📂 File Structure
-
-```
-iitm-assignment-scraper/
-├── manifest.json          # Extension configuration
-├── background.js          # Service worker (handles clicks & context menu)
-├── scraper.js            # Main scraping logic
-├── turndown.js           # HTML-to-Markdown converter (bundled)
-├── convert_icon.py       # Icon generation script
-├── images/               # Extension icons
-│   ├── icon16.png       # 16x16 toolbar icon
-│   ├── icon48.png       # 48x48 medium icon
-│   └── icon128.png      # 128x128 large icon
-└── README.md            # This file
-```
-
-## 🛠️ How It Works
-
-1. **Turndown.js Integration**: Bundled HTML-to-Markdown converter (no external dependencies)
-2. **Context Menu Integration**: Right-click menu appears only on IITM assignment pages
-3. **Smart Content Detection**: Finds questions, choices, and feedback elements
-4. **LaTeX/KaTeX Processing**: Converts mathematical formulas to Markdown format
-5. **Answer Preservation**: Maintains your selected answers and input responses
-6. **Local File Download**: Creates and downloads the Markdown file directly
-
-## 🎯 Supported Content
-
-- ✅ Multiple choice questions with checkboxes
-- ✅ Text and numeric input answers
-- ✅ Mathematical formulas (LaTeX/KaTeX)
-- ✅ Faculty feedback and correct answers
-- ✅ Assignment metadata (submission dates, scores)
-- ✅ Course and assignment titles
-
-## 🔒 Privacy & Security
-
-- **100% Local Processing**: No data is sent to external servers
-- **Read-Only Access**: Only reads assignment content, never modifies anything
-- **Personal Use**: Designed for your own assignments and study materials
-- **No Tracking**: Zero analytics, cookies, or user tracking
-
-## ⚠️ Important Notes
-
-- **For Personal Use Only**: This tool is intended for your own study and review purposes
-- **Respect Academic Integrity**: Only use on assignments you have legitimate access to
-- **Institution Policy**: Ensure compliance with your institution's technology use policies
-- **Not Official**: This is an unofficial tool, not endorsed by IIT Madras
-
-## 🤝 Contributing
-
-Found a bug or want to add a feature? Contributions are welcome!
-
-1. Fork this repository
-2. Create a feature branch: `git checkout -b my-new-feature`
-3. Commit your changes: `git commit -am 'Add some feature'`
-4. Push to the branch: `git push origin my-new-feature`
-5. Submit a pull request
-
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
-## ❓ Troubleshooting
-
-### Extension doesn't appear
-- Make sure you enabled "Developer mode" in Chrome
-- Check that you selected the correct folder (should contain `manifest.json`)
-
-### Icon doesn't work
-- Make sure you're on a `seek.onlinedegree.iitm.ac.in` page
-- Check that you're viewing an assignment (not course listing)
-- Open DevTools and check for console errors
-
-### Math formulas look weird
-- The extension converts LaTeX to Markdown format (`$formula$`)
-- Use a Markdown viewer that supports math rendering for best results
-
-### Download doesn't start
-- Check if your browser blocked the download
-- Ensure popup blockers aren't interfering
-- Try refreshing the page and clicking again
-
-## 🙏 Acknowledgments
-
-- Thanks to the open source [Turndown.js](https://github.com/mixmark-io/turndown) library
-- Inspired by the need for better study materials organization
-- Built with love for the IIT Madras online degree community
+Contributions are welcome! Please open an issue or submit a pull request for any features or bug fixes.
 
 ---
-
-**Happy studying! 🚀📚** 
+*Built for excellence in the IITM Online Degree program.*
