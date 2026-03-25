@@ -328,103 +328,134 @@
                     }
                 }
             } else {
-                // Regular assignment logic
-                const headerInfo = document.querySelector('.assessment-top-info');
+                // Regular assignment logic (Dual-mode: GCB & Modern Portal)
+                const headerInfo = document.querySelector('.assessment-top-info, .modules__content-head-title, .title-container');
                 if (headerInfo) markdown += `> ${headerInfo.innerText.trim().replace(/\n\s*\n/g, '\n> ')}\n\n`;
 
-                const lastSubmitted = document.querySelector('.submission-info .submission-date');
+                const lastSubmitted = document.querySelector('.submission-info .submission-date, .last-submitted-at');
                 if (lastSubmitted) markdown += `> **Last Submitted:** ${lastSubmitted.innerText.trim()}\n\n`;
 
                 markdown += `---\n\n`;
 
-                // NEW: Scrape intro text/code blocks that appear before Question 1
-                const bodyContent = document.querySelector('.gcb-assessment-body');
+                // Try to find the container for questions
+                const bodyContent = document.querySelector('.gcb-assessment-body, mat-sidenav-content, .assignment-container, .question-container-parent');
                 if (bodyContent) {
-                    const firstQuestion = bodyContent.querySelector('.gcb-question-row');
                     const introClone = bodyContent.cloneNode(true);
 
-                    // Remove all question rows to get only the intro/common content
-                    introClone.querySelectorAll('.gcb-question-row').forEach(q => q.remove());
-                    // Remove empty placeholders or scripts
-                    introClone.querySelectorAll('noscript, script, .qt-warning').forEach(el => el.remove());
+                    // Remove all question rows/cards to get only the intro
+                    introClone.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question, .result-card').forEach(q => q.remove());
+                    // Remove empty placeholders, scripts, buttons
+                    introClone.querySelectorAll('noscript, script, .qt-warning, button, .mat-mdc-button, .action-bar').forEach(el => el.remove());
 
                     processNode(introClone);
                     let introMarkdown = turndownService.turndown(introClone.innerHTML).trim();
-                    if (introMarkdown) {
+                    if (introMarkdown && introMarkdown.length > 20) {
                         markdown += `## Introduction\n\n${introMarkdown}\n\n---\n\n`;
                     }
                 }
 
-                const questionBlocks = document.querySelectorAll('.gcb-question-row');
-                questionBlocks.forEach((block, index) => {
-                    markdown += `### Question ${index + 1}\n\n`;
+                const questionBlocks = document.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question');
+                console.log(`IITM Scraper: Found ${questionBlocks.length} question blocks.`);
 
-                    const questionTextElement = block.querySelector('.qt-question');
-                    if (questionTextElement) {
-                        const questionClone = questionTextElement.cloneNode(true);
-                        questionClone.querySelector('.qt-choices')?.remove();
-                        processNode(questionClone);
-                        markdown += turndownService.turndown(questionClone.innerHTML).replace(/\n\n\n/g, '\n\n') + '\n\n';
-                    }
+                if (questionBlocks.length === 0 && !ytIframe) {
+                    // Fallback to full content if nothing structured found
+                    const mainContent = document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content') || document.body;
+                    const clone = mainContent.cloneNode(true);
+                    // Remove sidebars and known noise
+                    clone.querySelectorAll('mat-sidenav, app-header, app-footer, .header, .footer, script, noscript, .units__list, .nav-container').forEach(el => el.remove());
+                    processNode(clone);
+                    markdown += turndownService.turndown(clone.innerHTML);
+                } else {
+                    questionBlocks.forEach((block, index) => {
+                        markdown += `### Question ${index + 1}\n\n`;
 
-                    const choices = block.querySelectorAll('.gcb-mcq-choice');
-                    if (choices.length > 0) {
-                        choices.forEach(choice => {
-                            const input = choice.querySelector('input');
-                            const label = choice.querySelector('label');
-                            if (!label) return;
-
-                            const labelClone = label.cloneNode(true);
-                            processNode(labelClone);
-
-                            const isChecked = input ? (input.checked || input.hasAttribute('checked')) : false;
-                            const checkbox = isChecked ? '- [x]' : '- [ ]';
-                            const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim().replace(/\n/g, '  \n    ');
-                            markdown += `${checkbox} ${labelMarkdown}\n`;
-                        });
-                        markdown += '\n';
-                    }
-
-                    const textResponseInput = block.querySelector('input[type="number"], input[type="text"]');
-                    if (textResponseInput && choices.length === 0) {
-                        markdown += `**Your Answer:** \`${textResponseInput.value || '(Not answered)'}\`\n\n`;
-                    }
-
-                    const feedbackElement = block.querySelector('.qt-feedback[role="alert"]');
-                    if (feedbackElement) {
-                        // Status and Score
-                        const statusHeader = feedbackElement.querySelector('h3.feedback-header');
-                        if (statusHeader) {
-                            const statusSpans = Array.from(statusHeader.querySelectorAll('span.correct'));
-                            const statusText = statusSpans[0]?.innerText.trim();
-                            if (statusText) markdown += `**Status:** ${statusText}\n`;
-
-                            const scoreSpan = statusSpans.find(s => s.innerText.toLowerCase().includes('score'));
-                            if (scoreSpan) markdown += `**Score:** ${scoreSpan.innerText.trim()}\n`;
+                        // Try to find question text
+                        const questionTextElement = block.querySelector('.qt-question, .question-text, .mcq-question-text, h3, h4');
+                        if (questionTextElement) {
+                            const questionClone = questionTextElement.cloneNode(true);
+                            questionClone.querySelector('.qt-choices, .choices-container')?.remove();
+                            processNode(questionClone);
+                            markdown += turndownService.turndown(questionClone.innerHTML).replace(/\n\n\n/g, '\n\n') + '\n\n';
+                        } else {
+                            // If no specific text element, take the whole block but remove choices
+                            const blockClone = block.cloneNode(true);
+                            blockClone.querySelectorAll('.gcb-mcq-choice, mat-checkbox, mat-radio-button, .choice-container, .qt-feedback, .feedback-container').forEach(el => el.remove());
+                            processNode(blockClone);
+                            markdown += turndownService.turndown(blockClone.innerHTML).trim() + '\n\n';
                         }
 
-                        // Detailed Feedback / Explanation
-                        const feedbackHeaders = Array.from(feedbackElement.querySelectorAll('h3.feedback-header')).filter(h => h.innerText.includes('Feedback:'));
-                        feedbackHeaders.forEach(h => {
-                            let contentDiv = h.nextElementSibling;
-                            if (contentDiv && contentDiv.tagName === 'DIV' && !contentDiv.classList.contains('faculty-answer')) {
-                                const feedClone = contentDiv.cloneNode(true);
-                                processNode(feedClone);
-                                markdown += `\n**Feedback:**\n${turndownService.turndown(feedClone.innerHTML).trim()}\n\n`;
+                        // Choices handling (GCB style + Material style)
+                        const gcbChoices = block.querySelectorAll('.gcb-mcq-choice');
+                        const matChoices = block.querySelectorAll('mat-checkbox, mat-radio-button, .choice-container');
+                        const choices = gcbChoices.length > 0 ? gcbChoices : matChoices;
+
+                        if (choices.length > 0) {
+                            choices.forEach(choice => {
+                                const input = choice.querySelector('input, .mdc-checkbox__native-control, .mdc-radio__native-control');
+                                const label = choice.querySelector('label, .mdc-label, span.text, .choice-text');
+                                if (!label) return;
+
+                                const labelClone = label.cloneNode(true);
+                                processNode(labelClone);
+
+                                const isChecked = input ? (input.checked || input.hasAttribute('checked') || choice.classList.contains('mat-mdc-checkbox-checked') || choice.classList.contains('mat-mdc-radio-checked')) : false;
+                                const checkbox = isChecked ? '- [x]' : '- [ ]';
+                                const labelMarkdown = turndownService.turndown(labelClone.innerHTML).trim().replace(/\n/g, '  \n    ');
+                                markdown += `${checkbox} ${labelMarkdown}\n`;
+                            });
+                            markdown += '\n';
+                        }
+
+                        const textResponseInput = block.querySelector('input[type="number"], input[type="text"], textarea:not(.ace_text-input)');
+                        if (textResponseInput && choices.length === 0) {
+                            markdown += `**Your Answer:** \`${textResponseInput.value || '(Not answered)'}\`\n\n`;
+                        }
+
+                        const feedbackElement = block.querySelector('.qt-feedback[role="alert"], .feedback-container, .explanation');
+                        if (feedbackElement) {
+                            // Status and Score
+                            const statusHeader = feedbackElement.querySelector('h3.feedback-header, .status-header');
+                            if (statusHeader) {
+                                const statusSpans = Array.from(statusHeader.querySelectorAll('span.correct, .status-text'));
+                                const statusText = statusSpans[0]?.innerText.trim();
+                                if (statusText) markdown += `**Status:** ${statusText}\n`;
+
+                                const scoreSpan = statusSpans.find(s => s.innerText.toLowerCase().includes('score')) || feedbackElement.querySelector('.score-badge');
+                                if (scoreSpan) markdown += `**Score:** ${scoreSpan.innerText.trim()}\n`;
                             }
-                        });
 
-                        // Accepted Answers
-                        const acceptedAnswersContent = feedbackElement.querySelector('div.faculty-answer');
-                        if (acceptedAnswersContent) {
-                            markdown += `\n**Accepted Answers:**\n\n`;
-                            const ansClone = acceptedAnswersContent.cloneNode(true);
-                            processNode(ansClone);
-                            markdown += turndownService.turndown(ansClone.innerHTML).trim() + '\n\n';
+                            // Detailed Feedback / Explanation
+                            const feedbackHeaders = Array.from(feedbackElement.querySelectorAll('h3.feedback-header, .feedback-label')).filter(h => h.innerText.includes('Feedback:'));
+                            if (feedbackHeaders.length > 0) {
+                                feedbackHeaders.forEach(h => {
+                                    let contentDiv = h.nextElementSibling;
+                                    if (contentDiv && !contentDiv.classList.contains('faculty-answer')) {
+                                        const feedClone = contentDiv.cloneNode(true);
+                                        processNode(feedClone);
+                                        markdown += `\n**Feedback:**\n${turndownService.turndown(feedClone.innerHTML).trim()}\n\n`;
+                                    }
+                                });
+                            } else if (feedbackElement.innerText.trim().length > 0) {
+                                // Just grab the whole feedback content if no headers found
+                                const feedClone = feedbackElement.cloneNode(true);
+                                feedClone.querySelectorAll('.feedback-header, .status-header').forEach(el => el.remove());
+                                processNode(feedClone);
+                                const feedContent = turndownService.turndown(feedClone.innerHTML).trim();
+                                if (feedContent) markdown += `\n**Feedback/Explanation:**\n${feedContent}\n\n`;
+                            }
+
+                            // Accepted Answers
+                            const acceptedAnswersContent = feedbackElement.querySelector('div.faculty-answer, .accepted-answers');
+                            if (acceptedAnswersContent) {
+                                markdown += `\n**Accepted Answers:**\n\n`;
+                                const ansClone = acceptedAnswersContent.cloneNode(true);
+                                processNode(ansClone);
+                                markdown += turndownService.turndown(ansClone.innerHTML).trim() + '\n\n';
+                            }
                         }
-                    }
-                    markdown += `---\n\n`;
-                });
+                        markdown += `---\n\n`;
+                    });
+                }
             }
 
             // Clean up the final markdown before saving
@@ -542,20 +573,11 @@
             // Final safety filter for any escaped markers
             let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
 
-            const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            const cleanCourse = courseTitle.replace(/[^\w\s-]/g, '').trim();
-            const cleanAssignment = assignmentTitle.replace(/[^\w\s-]/g, '').trim();
-            const filename = `${cleanCourse} - ${cleanAssignment}.md`;
-            
             if (window.__scraperMode === 'copyToClipboard') {
                 navigator.clipboard.writeText(finalMarkdown).then(() => {
                     console.log('✅ Copied to clipboard!');
-                    // Visual feedback is handled in portal_enhancements.js
                 }).catch(err => {
                     console.error('❌ Clipboard failed:', err);
-                    alert('Clipboard access denied. Check browser permissions.');
                 });
                 return;
             }
@@ -566,8 +588,13 @@
                 return;
             }
 
-            url = URL.createObjectURL(blob);
-            a = document.createElement('a');
+            const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const cleanCourse = (courseTitle || 'Course').replace(/[^\w\s-]/g, '').trim();
+            const cleanAssignment = (assignmentTitle || 'Assignment').replace(/[^\w\s-]/g, '').trim();
+            const filename = `${cleanCourse} - ${cleanAssignment}.md`;
+            
             a.href = url;
             a.download = filename;
             document.body.appendChild(a);
