@@ -43,8 +43,9 @@
             return;
         }
 
-        // Copy to clipboard
+        // Copy to clipboard with synchronous fallback
         try {
+            // Primary Async modern method
             await navigator.clipboard.writeText(md);
             // Visual feedback on the search bar
             if (btn) btn.innerHTML = '<span style="font-size:10px;color:#4caf50;">Copied!</span>';
@@ -62,7 +63,19 @@
                 }, 2000);
             }
         } catch (err) {
-            console.error('Clipboard error:', err);
+            console.warn('Clipboard primary async fail, attempting synchronous execCommand...', err);
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = md;
+                ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                if (btn) btn.innerHTML = '<span style="font-size:10px;color:#4caf50;">Copied!</span>';
+            } catch (fallbackErr) {
+                console.error('Clipboard completely blocked:', fallbackErr);
+            }
         }
         
         setTimeout(() => { if(btn) btn.innerHTML = originalText; }, 2000);
@@ -421,6 +434,31 @@
 
     const autoCloseSidebar = () => {
         if (sidebarClosedThisSession || autoCloseAttempts > 20 || isSpotlightOpen) return;
+
+        // Massive Desktop Sidebar
+        const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
+        const arrowContainer = document.querySelector('.hide-outline-btn');
+        const isCollapsed = arrowContainer?.innerHTML?.includes('rotate(180deg)'); // heuristic
+        if (leftToggle && !isCollapsed && location.href.includes('/courses/')) {
+            // Delay closing by 3000ms to let page finish rendering
+            setTimeout(() => {
+                const innerToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
+                const innerContainer = document.querySelector('.hide-outline-btn');
+                const innerCollapsed = innerContainer?.innerHTML?.includes('rotate(180deg)');
+                
+                if (innerToggle && !innerCollapsed && !isSpotlightOpen) {
+                    // CRITICAL: IITM destroys the DOM when the sidebar closes. 
+                    // We must force Spotlight to aggressively read and cache the DOM into memory BEFORE closing!
+                    if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
+                    
+                    innerToggle.click();
+                }
+            }, 3000);
+            
+            sidebarClosedThisSession = true;
+            return;
+        }
+        
         const sidenav = document.querySelector('mat-sidenav');
         if (!sidenav) return;
         
@@ -432,12 +470,12 @@
             const toggle = document.querySelector('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
             if (toggle) {
                 toggle.click();
-                autoCloseAttempts++;
+                sidebarClosedThisSession = true;
             }
         } else if (location.href.includes('/courses/')) {
-            // It's closed (either we did it or it was default)
             sidebarClosedThisSession = true;
         }
+        autoCloseAttempts++;
     };
 
     const setupSpotlightListeners = () => {
@@ -742,6 +780,8 @@
                 </div>
             </div>
             <div class="focus-bar-right">
+                <button id="unlock-code-btn" style="margin-right: 8px; background: #c2185b; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;" title="Unlock Native Copy/Paste/Right-Click">🔓 Unlock</button>
+                <button id="copy-code-btn" style="margin-right: 8px; background: #1976d2; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;">📋 Copy Code</button>
                 <button id="toggle-ref-btn" style="margin-right: 8px; background: #2e7d32; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;">📖 Ref</button>
                 <button id="reset-boilerplate-btn" style="background: #a0332d; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;">🔄 Reset</button>
             </div>
@@ -813,6 +853,33 @@
     addGlobalListener('click', '#reset-boilerplate-btn', () => {
         if (confirm('Reset code to original boilerplate?')) {
             document.querySelector('.reset-btn')?.click();
+        }
+    });
+    addGlobalListener('click', '#copy-code-btn', () => {
+        const editor = document.querySelector('.mat-tab-body-active .ace_editor, .right-panel .ace_editor');
+        if (editor) {
+            let code = editor.getAttribute('data-full-code') || editor.querySelector('textarea.ace_text-input')?.value || editor.innerText;
+            if (code) {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = code; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                    
+                    const btn = document.getElementById('copy-code-btn');
+                    const og = btn.innerHTML;
+                    btn.innerHTML = '✅ Copied!'; btn.style.background = '#4CAF50';
+                    setTimeout(() => { btn.innerHTML = og; btn.style.background = '#1976d2'; }, 2000);
+                } catch(e) {}
+            }
+        }
+    });
+    addGlobalListener('click', '#unlock-code-btn', () => {
+        // Broadcast message to background.js to execute the brutal unlock script inside the MAIN world
+        chrome.runtime.sendMessage({ action: 'unlockPage' });
+        const btn = document.getElementById('unlock-code-btn');
+        if (btn) {
+            btn.innerHTML = '✅ Freedom!';
+            btn.style.background = '#388E3C';
         }
     });
 
@@ -1015,7 +1082,7 @@
                     <div class="spotlight-footer">
                         <div id="selection-counter" style="color:#db2777; font-weight:800; font-family: 'JetBrains Mono', monospace;"></div>
                         <div style="display: flex; gap: 20px; align-items: center;">
-                            <div id="footer-open-btn" style="display: flex; align-items: center; gap: 6px; cursor: pointer; transition: 0.2s;" onmousedown="e.stopPropagation(); e.preventDefault(); triggerSelection(currentMatches[selectedIndex]);">
+                            <div id="footer-open-btn" style="display: flex; align-items: center; gap: 6px; cursor: pointer; transition: 0.2s;">
                                 <span style="opacity: 0.8; font-weight: 600;">Open</span> <span style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #ccc; border: 1px solid rgba(255,255,255,0.1);">↵</span>
                             </div>
                             <div id="footer-actions-btn" style="display: flex; align-items: center; gap: 6px; cursor: pointer; transition: 0.2s;">
@@ -1283,12 +1350,21 @@
             updateSelection(results.querySelectorAll('.spotlight-item'));
         };
 
+        let cachedItems = null;
+
         const getItems = () => {
             // Sites uses Angular's units__items for weeks and unit__subitems for contents
             let headers = Array.from(document.querySelectorAll('.units__items'));
             // Refined fallback: Iterate sequentially to avoid double-counting nested Angular fragments
             if (headers.length === 0) headers = Array.from(document.querySelectorAll('.mat-expansion-panel'));
             if (headers.length === 0) headers = Array.from(document.querySelectorAll('app-course-unit-header'));
+            
+            // CACHE RESCUE: If the sidebar is closed, IITM destroys the syllabus DOM. 
+            // We return the memory-cached items if no DOM headers are present.
+            if (headers.length === 0 && cachedItems && cachedItems.length > 50) {
+                return cachedItems;
+            }
+
             const allItems = [];
             
             headers.forEach(weekEl => {
@@ -1410,8 +1486,12 @@
                 });
             });
             
+            if (headers.length > 0) cachedItems = allItems;
+            
             return allItems;
         };
+
+        window.__iitm_get_items = getItems;
 
         // KEYBOARD NAVIGATION
         let selectedIndex = -1;
@@ -1439,7 +1519,9 @@
                     }
                 }
             } else if (e.key === 'Enter' && selectedIndex >= 0) {
-                items[selectedIndex].click();
+                e.preventDefault();
+                const itemData = currentMatches[selectedIndex];
+                if (itemData) triggerSelection(itemData, e);
             } else if (e.key === 'j' && e.metaKey) {
                 e.preventDefault();
                 e.stopPropagation();
