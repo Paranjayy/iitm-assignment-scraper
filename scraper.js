@@ -33,6 +33,51 @@
 
         let markdown = "";
         
+        function scrapeAssignment() {
+            console.log("Scraping started...");
+            
+            // Check if we are in a Programming Assignment (GrPA)
+            const progContainer = document.querySelector('app-programming-code-editor');
+            
+            if (progContainer) {
+                return scrapeProgrammingAssignment();
+            } else {
+                return scrapeRegularAssignment();
+            }
+        }
+
+        function scrapeRegularAssignment() {
+            // FALLBACK: For Mathematics/Regular Assignments
+            const title = document.querySelector('.units__subitems-title span')?.innerText || "Assignment";
+            const questions = Array.from(document.querySelectorAll('.question-container, mat-card, .mcq-question'));
+            
+            let markdown = `# ${title}\n\n`;
+            
+            if (questions.length === 0) {
+                // Simple fallback to entire main content if no question containers found
+                const mainContent = document.querySelector('main') || document.body;
+                const turndownService = new TurndownService();
+                markdown += turndownService.turndown(mainContent.innerHTML);
+            } else {
+                questions.forEach((q, i) => {
+                    const turndownService = new TurndownService();
+                    markdown += `## Question ${i + 1}\n\n${turndownService.turndown(q.innerHTML)}\n\n---\n\n`;
+                });
+            }
+            
+            downloadMarkdown(markdown, `${title.replace(/\s+/g, '_')}.md`);
+        }
+
+        function scrapeProgrammingAssignment() {
+            const title = document.querySelector('.programming-code-editor-container .title')?.innerText || 
+                          document.querySelector('.units__subitems-title span')?.innerText || 
+                          "GrPA_Assignment";
+            // The rest of the GrPA scraping logic would go here,
+            // but for now, we'll just return the title.
+            // This function will be further developed.
+            return title;
+        }
+
         let assignmentTitle = (
             document.querySelector('.left-content .assignment-title') ||
             document.querySelector('.assignment-title') ||
