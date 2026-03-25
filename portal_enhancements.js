@@ -113,9 +113,9 @@
         }
         
         const count = subItems.length;
-        if (!confirm(`This will automatically scrape ${count} ${checkboxes.length > 0 ? 'SELECTED' : 'ALL'} units sequentially. Proceed?`)) return;
-
-        // Show progress overlay
+        if (!confirm(`This will automatically scrape ${count} ${selectedItems.size > 0 ? 'SELECTED' : 'ALL'} units sequentially. Proceed?`)) {
+            return;
+        } // Show progress overlay
         const overlay = document.createElement('div');
         overlay.id = 'iitm-bulk-overlay';
         overlay.style.cssText = `
