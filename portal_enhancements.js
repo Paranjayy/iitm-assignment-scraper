@@ -74,7 +74,8 @@
             claude: `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
             scira: `https://scira.ai/?q=${encodeURIComponent(prompt)}`,
             grok: `https://grok.com/?q=${encodeURIComponent(prompt)}`,
-            cursor: `https://cursor.com/link/prompt?text=${encodeURIComponent(prompt)}`
+            cursor: `https://cursor.com/link/prompt?text=${encodeURIComponent(prompt)}`,
+            gemini: `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`
         };
 
         window.open(urls[service] || urls.chatgpt, '_blank');
@@ -765,8 +766,11 @@
                     </div>
                 </div>
                 <div id="spotlight-results"></div>
-                <div style="padding: 14px 30px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 11px; color: #555; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
-                    <div>Tip: Use <span style="background:rgba(21,101,192,0.2); color:#1e88e5; padding:2px 6px; border-radius:4px; font-weight:700;">↑ ↓</span> to navigate</div>
+                <div style="padding: 14px 30px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 11px; color: #555; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4);">
+                    <div id="spotlight-footer-meta">
+                        Tip: Use <span style="background:rgba(21,101,192,0.2); color:#1e88e5; padding:2px 6px; border-radius:4px; font-weight:700;">↑ ↓</span> to navigate
+                    </div>
+                    <div id="selection-counter" style="color:#db2777; font-weight:800;"></div>
                     <button id="syllabus-export-btn" class="iitm-btn" style="padding: 6px 14px; font-size: 11px;">📊 Export Syllabus</button>
                 </div>
             </div>
@@ -778,6 +782,9 @@
         const results = document.getElementById('spotlight-results');
 
         const renderResults = (items) => {
+            const counter = document.getElementById('selection-counter');
+            if (counter) counter.innerText = selectedItems.size > 0 ? `📦 ${selectedItems.size} Selected` : '';
+            
             results.innerHTML = '';
             
             let filtered = items;
@@ -822,6 +829,7 @@
                         else if (item.actionId === 'unlockPage') chrome.runtime.sendMessage({ action: 'unlockPage' });
                         else if (item.actionId === 'explainChatGPT') openInAI('chatgpt');
                         else if (item.actionId === 'explainClaude') openInAI('claude');
+                        else if (item.actionId === 'explainGemini') openInAI('gemini');
                         else if (item.actionId === 'bulkExport') bulkScrapeAll();
                         else handleUIToggle(item.actionId);
                     } else {
@@ -899,6 +907,7 @@
                 { text: '🌙 Toggle Dark Mode', typeLabel: 'Action', el: null, action: 'toggleDarkMode' },
                 { text: '🤖 Explain Page with ChatGPT', typeLabel: 'Action', el: null, action: 'explainChatGPT' },
                 { text: '🧠 Solve with Claude', typeLabel: 'Action', el: null, action: 'explainClaude' },
+                { text: '✨ Brainstorm with Gemini', typeLabel: 'Action', el: null, action: 'explainGemini' },
                 { text: '📦 Bulk Export All Weeks (Export All)', typeLabel: 'Action', el: null, action: 'bulkExport' }
             ];
 
@@ -1055,7 +1064,9 @@
         // Show items by default on focus if empty
         input.onfocus = () => { 
             updatePlaceholder();
-            renderResults(getItems()); 
+            const items = getItems();
+            currentMatches = items;
+            renderResults(items); 
         };
         
         // Syllabus Export Trigger
