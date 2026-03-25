@@ -526,7 +526,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         `;
         
-        btn.onclick = () => {
+        const openSpotlight = () => {
             const spotlight = document.getElementById('iitm-spotlight');
             if (spotlight) {
                 isSpotlightOpen = true;
@@ -534,6 +534,15 @@
                 document.getElementById('spotlight-input').focus();
             }
         };
+
+        window.addEventListener('keydown', (e) => {
+            if ((e.key === 'k' || e.key === 'p') && e.metaKey) {
+                e.preventDefault();
+                openSpotlight();
+            }
+        });
+        
+        btn.onclick = openSpotlight;
 
         menuContainer.insertBefore(btn, menuContainer.firstChild);
     };
@@ -664,18 +673,23 @@
             .spotlight-filters::-webkit-scrollbar { display: none; }
             #spotlight-results { max-height: 550px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
             .spotlight-item { 
-                padding: 18px 30px; color: #aaa; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); 
-                display: flex; justify-content: space-between; gap: 20px; transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                padding: 14px 30px; color: #aaa; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); 
+                display: flex; justify-content: space-between; gap: 20px; transition: 0.1s linear;
                 align-items: center;
             }
-            .spotlight-item:hover { background: rgba(21, 101, 192, 0.15); color: #fff; padding-left: 36px; }
+            .spotlight-item:hover, .spotlight-item.active { background: rgba(21, 101, 192, 0.15); color: #fff; }
+            .spotlight-item.selected { border-left: 3px solid #db2777; background: rgba(219, 39, 119, 0.05); }
+            .spotlight-item:hover .selection-hint { opacity: 1 !important; }
             .spotlight-item .title { font-size: 15px; font-weight: 500; margin-bottom: 2px; }
             .type { font-size: 9px; padding: 4px 10px; border-radius: 6px; font-weight: 900; background: rgba(255,255,255,0.05); color: #888; text-transform: uppercase; }
             .filter-chip { 
                 background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #777; 
                 padding: 8px 18px; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.25s;
             }
-            .filter-chip.active { background: #1e88e5; border-color: #1e88e5; color: white; }
+            .filter-chip.active { background: #db2777; border-color: #db2777; color: white; }
+            
+            .submenu-item:hover { background: rgba(255,255,255,0.05); color:#fff; }
+            @keyframes slideUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
 
             /* CLEAN MODE & TOGGLES */
             body.iitm-clean-mode #iitm-header-utils,
@@ -740,7 +754,7 @@
             <div class="spotlight-box">
                 <div class="spotlight-header">
                     <div style="padding: 24px 30px 4px 30px; font-size: 13px; font-weight: 800; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">Quick Navigation</div>
-                    <input id="spotlight-input" type="text" placeholder="Search Lessons, Assignments, Weeks..." autocomplete="off">
+                    <input id="spotlight-input" type="text" placeholder="Jump to Week or Lesson (⌘P)..." autocomplete="off">
                     <div class="spotlight-filters">
                         <div class="filter-chip active" data-filter="all">All</div>
                         <div class="filter-chip" data-filter="video">🎥 Videos</div>
@@ -785,14 +799,21 @@
             }
 
             filtered.slice(0, 50).forEach(item => {
+                const isSelected = selectedItems.has(item.text);
                 const div = document.createElement('div');
-                div.className = 'spotlight-item';
+                div.className = `spotlight-item ${isSelected ? 'selected' : ''}`;
                 div.innerHTML = `
                     <div class="content">
                         <div class="breadcrumb">${item.breadcrumb || 'Course'}</div>
-                        <div class="title">${item.text}</div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            ${isSelected ? '<span style="color:#db2777; font-size:14px;">●</span>' : ''}
+                            <div class="title">${item.text}</div>
+                        </div>
                     </div>
-                    <span class="type" style="${item.isSub ? 'background:rgba(21,101,192,0.1);color:#1e88e5;' : 'background:rgba(255,255,255,0.05);'}">${item.typeLabel}</span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        ${item.isSub ? `<span class="type" style="background:rgba(21,101,192,0.1);color:#1e88e5;">${item.typeLabel}</span>` : '<span class="type">Week</span>'}
+                        <span class="selection-hint" style="font-size:9px; color:#555; opacity:0; transition:0.2s;">Tab to select</span>
+                    </div>
                 `;
                 div.onclick = () => {
                     if (item.actionId) {
@@ -898,23 +919,91 @@
 
         // KEYBOARD NAVIGATION
         let selectedIndex = -1;
+        let currentMatches = [];
+
         input.onkeydown = (e) => {
             const items = results.querySelectorAll('.spotlight-item');
             if (e.key === 'ArrowDown') {
+                e.preventDefault();
                 selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
                 updateSelection(items);
-                e.preventDefault();
             } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
                 selectedIndex = Math.max(selectedIndex - 1, -1);
                 updateSelection(items);
+            } else if (e.key === 'Tab') {
                 e.preventDefault();
+                if (selectedIndex >= 0) {
+                    const itemData = currentMatches[selectedIndex];
+                    if (itemData && itemData.isSub && !itemData.actionId) {
+                        if (selectedItems.has(itemData.text)) selectedItems.delete(itemData.text);
+                        else selectedItems.add(itemData.text);
+                        renderResults(currentMatches); 
+                        updateSelection(results.querySelectorAll('.spotlight-item'));
+                    }
+                }
             } else if (e.key === 'Enter' && selectedIndex >= 0) {
                 items[selectedIndex].click();
+            } else if (e.key === 'k' && e.metaKey) {
+                e.preventDefault();
+                showActionSubmenu(currentMatches[selectedIndex]);
             }
+        };
+
+        const showActionSubmenu = (item) => {
+            if (!item) return;
+            const actionContainer = document.createElement('div');
+            actionContainer.id = 'spotlight-action-submenu';
+            actionContainer.style.cssText = `
+                position: absolute; bottom: 60px; right: 30px; width: 220px;
+                background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+                display: flex; flex-direction: column; overflow: hidden; z-index: 10005;
+                animation: slideUp 0.2s ease;
+            `;
+            
+            const itemActions = [
+                { name: 'Primary Action (Open)', key: '↵', run: () => (item.el.closest('button') || item.el).click() },
+                { name: 'Toggle Selection', key: '⇥', run: () => {
+                    if (selectedItems.has(item.text)) selectedItems.delete(item.text);
+                    else selectedItems.add(item.text);
+                    renderResults(matches);
+                } },
+                { name: 'Scrape Context Only', key: 'S', run: () => {
+                   (item.el.closest('button') || item.el).click();
+                   setTimeout(() => chrome.runtime.sendMessage({ action: 'triggerScraper' }), 1000);
+                } }
+            ];
+
+            actionContainer.innerHTML = itemActions.map(a => `
+                <div class="submenu-item" style="padding:10px 15px; display:flex; justify-content:space-between; cursor:pointer; font-size:12px; border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <span style="color:#eee;">${a.name}</span>
+                    <span style="color:#555; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; font-size:10px;">${a.key}</span>
+                </div>
+            `).join('');
+
+            results.parentNode.appendChild(actionContainer);
+            
+            const closeSub = (e) => {
+                if (!actionContainer.contains(e.target)) {
+                    actionContainer.remove();
+                    document.removeEventListener('click', closeSub);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', closeSub), 10);
+
+            actionContainer.querySelectorAll('.submenu-item').forEach((div, i) => {
+                div.onclick = () => {
+                    itemActions[i].run();
+                    actionContainer.remove();
+                };
+            });
         };
 
         const updateSelection = (items) => {
             items.forEach((item, idx) => {
+                if (idx === selectedIndex) item.classList.add('active');
+                else item.classList.remove('active');
                 item.style.background = idx === selectedIndex ? 'rgba(21, 101, 192, 0.3)' : '';
                 if (idx === selectedIndex) item.scrollIntoView({ block: 'nearest' });
             });
@@ -926,6 +1015,7 @@
             selectedIndex = -1; 
             
             if (!query) {
+                currentMatches = items; // Update currentMatches for empty query
                 renderResults(items);
                 return;
             }
@@ -938,7 +1028,8 @@
                     (item.typeLabel && item.typeLabel.toLowerCase().includes(word))
                 )
             );
-
+            
+            currentMatches = matches; // Update currentMatches here
             renderResults(matches);
         };
 
@@ -1173,104 +1264,7 @@
         `;
     };
 
-    /**
-     * Injects checkboxes into the sidebar for item selection
-     */
-    const injectSelectionCheckboxes = () => {
-        const items = document.querySelectorAll('.units__subitems');
-        if (items.length === 0) return;
 
-        items.forEach(item => {
-            const title = item.innerText.split('\n')[0].trim();
-            if (item.querySelector('.iitm-selection-checkbox')) {
-                // Just update the checked state if already exists
-                item.querySelector('.iitm-selection-checkbox').checked = selectedItems.has(title);
-                return;
-            }
-            
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.className = 'iitm-selection-checkbox';
-            cb.checked = selectedItems.has(title);
-            cb.style.cssText = `
-                width: 14px; height: 14px; margin-right: 10px; cursor: pointer;
-                accent-color: #db2777;
-            `;
-            cb.onclick = (e) => {
-                e.stopPropagation();
-                if (cb.checked) selectedItems.add(title);
-                else selectedItems.delete(title);
-                console.log('Selection updated:', selectedItems.size, 'items');
-            };
-            
-            // Inject after or before the title
-            const titleContainer = item.querySelector('.units__subitems-title') || item;
-            titleContainer.insertBefore(cb, titleContainer.firstChild);
-        });
-
-        // Add a "Select All" button if it doesn't exist
-        const list = document.querySelector('.units__list');
-        if (list && !document.getElementById('iitm-select-all-container')) {
-            const container = document.createElement('div');
-            container.id = 'iitm-select-all-container';
-            container.style.cssText = `
-                padding: 10px 15px; border-bottom: 1px solid rgba(0,0,0,0.05);
-                display: flex; gap: 10px; align-items: center; justify-content: space-between;
-                font-size: 11px;
-            `;
-            container.innerHTML = `
-                <div style="display:flex; gap:8px;">
-                    <button class="iitm-ui-btn" id="iitm-expand-all-btn" title="Expand all weeks to see contents">↔️ Expand All</button>
-                    <button class="iitm-ui-btn" id="iitm-select-all-btn">Select All</button>
-                    <button class="iitm-ui-btn" id="iitm-select-none-btn">None</button>
-                </div>
-                <div style="opacity: 0.6;">Selection Mode</div>
-            `;
-            list.insertBefore(container, list.firstChild.nextSibling);
-
-            document.getElementById('iitm-expand-all-btn').onclick = async () => {
-                const btn = document.getElementById('iitm-expand-all-btn');
-                btn.innerText = '⌛ Expanding...';
-                const items = Array.from(document.querySelectorAll('.units__items:not(.units__items-selected)'));
-                for (const item of items) {
-                    const title = item.querySelector('.units__items-title');
-                    if (title) {
-                        title.click();
-                        await new Promise(r => setTimeout(r, 600));
-                    }
-                }
-                btn.innerText = '↔️ Expand All';
-            };
-
-            document.getElementById('iitm-select-all-btn').onclick = () => {
-                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => {
-                    const title = cb.closest('.units__subitems').innerText.split('\n')[0].trim();
-                    cb.checked = true;
-                    selectedItems.add(title);
-                });
-            };
-            document.getElementById('iitm-select-none-btn').onclick = () => {
-                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => {
-                    const title = cb.closest('.units__subitems').innerText.split('\n')[0].trim();
-                    cb.checked = false;
-                    selectedItems.delete(title);
-                });
-            };
-            
-            const btnStyle = document.createElement('style');
-            btnStyle.innerText = `
-                .iitm-ui-btn { 
-                    background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1); 
-                    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 10px; font-weight: 700;
-                    transition: 0.2s;
-                }
-                .iitm-ui-btn:hover { background: #db2777; color: white; border-color: #db2777; }
-                body.iitm-dark-mode .iitm-ui-btn { background: rgba(255,255,255,0.05); color: #ccc; border-color: #444; }
-                body.iitm-dark-mode .iitm-ui-btn:hover { background: #db2777; color: white; }
-            `;
-            document.head.appendChild(btnStyle);
-        }
-    };
 
     // Auto-Loader loop (Reduced frequency for site speed)
     setInterval(() => {
@@ -1280,7 +1274,6 @@
         injectFocusBar();
         injectProgressTracker();
         injectScoreCheckerTools();
-        injectSelectionCheckboxes(); // New
         injectGlobalTimer();
         autoCloseSidebar();
     }, 2500);
