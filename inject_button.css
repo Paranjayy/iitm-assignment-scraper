@@ -59,6 +59,11 @@
     animation-delay: 0.1s;
 }
 
+.iitm-bulk-btn {
+    background: linear-gradient(135deg, #db2777, #7e22ce);
+    animation-delay: 0.2s;
+}
+
 .iitm-floating-btn:hover {
     transform: scale(1.1) translateX(-5px);
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);

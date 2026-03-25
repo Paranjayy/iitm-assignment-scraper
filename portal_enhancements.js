@@ -86,36 +86,53 @@
         }
     });
 
-    // 5. BULK EXPORT ALL WEEKS
+    // 5. BULK EXPORT ALL WEEKS (Enhanced with Selection)
     const bulkScrapeAll = async () => {
-        const subItems = Array.from(document.querySelectorAll('.units__subitems'));
-        if (subItems.length === 0) return alert('Sidebar nodes not found. Make sure weeks are expanded.');
+        // Collect checkboxes
+        const checkboxes = Array.from(document.querySelectorAll('.iitm-selection-checkbox:checked'));
+        let subItems = [];
         
-        if (!confirm(`This will scrape ${subItems.length} units sequentially. It might take a minute. Proceed?`)) return;
+        if (checkboxes.length > 0) {
+            subItems = checkboxes.map(cb => cb.closest('.units__subitems'));
+        } else {
+            subItems = Array.from(document.querySelectorAll('.units__subitems'));
+        }
+
+        if (subItems.length === 0) {
+            return alert('No items found. Please expand the weeks in the sidebar first.');
+        }
+        
+        const count = subItems.length;
+        if (!confirm(`This will automatically scrape ${count} ${checkboxes.length > 0 ? 'SELECTED' : 'ALL'} units sequentially. Proceed?`)) return;
 
         // Show progress overlay
         const overlay = document.createElement('div');
         overlay.id = 'iitm-bulk-overlay';
         overlay.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); color: white; z-index: 20000;
+            background: rgba(18,18,18,0.92); color: white; z-index: 20000;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(15px); font-family: system-ui, sans-serif;
+            animation: fadeIn 0.4s ease;
         `;
         overlay.innerHTML = `
-            <div style="font-size: 24px; font-weight: 800; margin-bottom: 20px;">📦 Exporting All Content</div>
-            <div id="bulk-progress-text" style="font-size: 16px; opacity: 0.8; margin-bottom: 30px;">Initializing...</div>
-            <div style="width: 300px; height: 10px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;">
-                <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: #1e88e5; transition: 0.3s;"></div>
+            <div style="font-size: 28px; font-weight: 800; margin-bottom: 20px; color: #db2777;">📦 Bulk Export in Progress</div>
+            <div id="bulk-progress-text" style="font-size: 16px; opacity: 0.8; margin-bottom: 30px;">Scraping contents automatically...</div>
+            <div style="width: 350px; height: 12px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+                <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #db2777, #7e22ce); transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 20px rgba(219,39,119,0.5);"></div>
             </div>
-            <button id="cancel-bulk-btn" style="margin-top: 40px; background: #a0332d; border: none; color: white; padding: 10px 24px; border-radius: 20px; cursor: pointer; font-weight: 700;">Cancel</button>
+            <div style="margin-top: 20px; font-size: 12px; color: rgba(255,255,255,0.4);">Estimated time remaining: ${Math.round(count * 4.5)}s</div>
+            <button id="cancel-bulk-btn" style="margin-top: 40px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 12px 30px; border-radius: 25px; cursor: pointer; font-weight: 700; transition: 0.2s;">Cancel Download</button>
         `;
         document.body.appendChild(overlay);
 
         let cancelled = false;
         document.getElementById('cancel-bulk-btn').onclick = () => { cancelled = true; overlay.remove(); };
 
-        let combinedMarkdown = `# Course Export: ${document.title}\n\n`;
+        let combinedMarkdown = `# Bulk Course Export: ${document.title}\n\n`;
+        combinedMarkdown += `> Generated on: ${new Date().toLocaleString()}\n`;
+        combinedMarkdown += `> Source: ${window.location.origin}\n\n`;
+        
         const progressText = document.getElementById('bulk-progress-text');
         const progressBar = document.getElementById('bulk-progress-bar');
 
@@ -125,20 +142,18 @@
             const item = subItems[i];
             const title = item.innerText.split('\n')[0].trim();
             
-            progressText.innerText = `[${i+1}/${subItems.length}] Scraping: ${title}`;
+            progressText.innerText = `[${i+1}/${subItems.length}] Processing: ${title}`;
             progressBar.style.width = `${((i+1)/subItems.length) * 100}%`;
             
-            // Navigate to the unit
+            // Navigate to the unit (Crucial for manual-intervention-free)
             item.click();
             
-            // Wait for angular to load the page content (dynamic)
-            await new Promise(r => setTimeout(r, 4000)); // Safer wait for data loads
+            // Wait for dynamically loaded content
+            await new Promise(r => setTimeout(r, 4500)); 
             
-            // Request markdown from scraper
+            // Capture markdown
             const md = await new Promise(resolve => {
-                // Trigger scraper but tell it NOT to download
                 chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture' });
-                
                 const handler = (e) => {
                     window.removeEventListener('iitm-markdown-captured', handler);
                     resolve(e.detail?.markdown);
@@ -147,11 +162,11 @@
                 setTimeout(() => { 
                     window.removeEventListener('iitm-markdown-captured', handler); 
                     resolve(null); 
-                }, 8000);
+                }, 9000); // Higher timeout for slow loads
             });
 
             if (md) {
-                combinedMarkdown += `\n\n--- \n\n ${md}`;
+                combinedMarkdown += `\n\n--- \n\n# ${title}\n\n${md}`;
             }
         }
 
@@ -160,10 +175,10 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Bulk_Export_${document.title.replace(/\s+/g, '_')}_${Date.now()}.md`;
+            a.download = `IITM_Bulk_Export_${document.title.replace(/\s+/g, '_')}_${Date.now()}.md`;
             a.click();
-            overlay.innerHTML = `<div style="font-size: 24px;">✅ Export Complete!</div>`;
-            setTimeout(() => overlay.remove(), 2000);
+            overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Your multi-unit report is downloading...</div>`;
+            setTimeout(() => overlay.remove(), 2500);
         }
     };
 
@@ -1149,6 +1164,86 @@
         `;
     };
 
+    /**
+     * Injects checkboxes into the sidebar for item selection
+     */
+    const injectSelectionCheckboxes = () => {
+        const items = document.querySelectorAll('.units__subitems');
+        if (items.length === 0) return;
+
+        items.forEach(item => {
+            if (item.querySelector('.iitm-selection-checkbox')) return;
+            
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'iitm-selection-checkbox';
+            cb.style.cssText = `
+                width: 14px; height: 14px; margin-right: 10px; cursor: pointer;
+                accent-color: #db2777;
+            `;
+            cb.onclick = (e) => e.stopPropagation();
+            
+            // Inject after or before the title
+            const titleContainer = item.querySelector('.units__subitems-title') || item;
+            titleContainer.insertBefore(cb, titleContainer.firstChild);
+        });
+
+        // Add a "Select All" button if it doesn't exist
+        const list = document.querySelector('.units__list');
+        if (list && !document.getElementById('iitm-select-all-container')) {
+            const container = document.createElement('div');
+            container.id = 'iitm-select-all-container';
+            container.style.cssText = `
+                padding: 10px 15px; border-bottom: 1px solid rgba(0,0,0,0.05);
+                display: flex; gap: 10px; align-items: center; justify-content: space-between;
+                font-size: 11px;
+            `;
+            container.innerHTML = `
+                <div style="display:flex; gap:8px;">
+                    <button class="iitm-ui-btn" id="iitm-expand-all-btn" title="Expand all weeks to see contents">↔️ Expand All</button>
+                    <button class="iitm-ui-btn" id="iitm-select-all-btn">Select All</button>
+                    <button class="iitm-ui-btn" id="iitm-select-none-btn">None</button>
+                </div>
+                <div style="opacity: 0.6;">Selection Mode</div>
+            `;
+            list.insertBefore(container, list.firstChild.nextSibling);
+
+            document.getElementById('iitm-expand-all-btn').onclick = async () => {
+                const btn = document.getElementById('iitm-expand-all-btn');
+                btn.innerText = '⌛ Expanding...';
+                const items = Array.from(document.querySelectorAll('.units__items:not(.units__items-selected)'));
+                for (const item of items) {
+                    const title = item.querySelector('.units__items-title');
+                    if (title) {
+                        title.click();
+                        await new Promise(r => setTimeout(r, 600));
+                    }
+                }
+                btn.innerText = '↔️ Expand All';
+            };
+
+            document.getElementById('iitm-select-all-btn').onclick = () => {
+                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => cb.checked = true);
+            };
+            document.getElementById('iitm-select-none-btn').onclick = () => {
+                document.querySelectorAll('.iitm-selection-checkbox').forEach(cb => cb.checked = false);
+            };
+            
+            const btnStyle = document.createElement('style');
+            btnStyle.innerText = `
+                .iitm-ui-btn { 
+                    background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1); 
+                    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 10px; font-weight: 700;
+                    transition: 0.2s;
+                }
+                .iitm-ui-btn:hover { background: #db2777; color: white; border-color: #db2777; }
+                body.iitm-dark-mode .iitm-ui-btn { background: rgba(255,255,255,0.05); color: #ccc; border-color: #444; }
+                body.iitm-dark-mode .iitm-ui-btn:hover { background: #db2777; color: white; }
+            `;
+            document.head.appendChild(btnStyle);
+        }
+    };
+
     // Auto-Loader loop (Reduced frequency for site speed)
     setInterval(() => {
         injectHeaderUtils();
@@ -1157,8 +1252,12 @@
         injectFocusBar();
         injectProgressTracker();
         injectScoreCheckerTools();
+        injectSelectionCheckboxes(); // New
         injectGlobalTimer();
         autoCloseSidebar();
     }, 2500);
+
+    // Global Trigger for Bulk Export
+    window.addEventListener('iitm-trigger-bulk-export', bulkScrapeAll);
 
 })();
