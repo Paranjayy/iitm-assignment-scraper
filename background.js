@@ -1,46 +1,48 @@
 // Create context menu when extension is installed
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: "scrapeAssignment",
-    title: "📝 Export to Markdown",
-    contexts: ["all"],
-    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
-  });
-  chrome.contextMenus.create({
-    id: "unlockPage",
-    title: "🔓 Unlock Editor/Copy-Paste",
-    contexts: ["all"],
-    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
-  });
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "scrapeAssignment",
+      title: "📝 Export to Markdown",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
+    });
+    chrome.contextMenus.create({
+      id: "unlockPage",
+      title: "🔓 Unlock Editor/Copy-Paste",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
+    });
 
-  // Top-level UI Management (No nesting as requested)
-  chrome.contextMenus.create({
-    id: "toggleCleanMode",
-    title: "🪄 Toggle Clean UI (All)",
-    contexts: ["all"],
-    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
-  });
+    // Top-level UI Management (No nesting as requested)
+    chrome.contextMenus.create({
+      id: "toggleCleanMode",
+      title: "🪄 Toggle Clean UI (All)",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+    });
 
-  chrome.contextMenus.create({
-    id: "toggleFocusBar",
-    title: "⏱️ Toggle Focus Bar",
-    contexts: ["all"],
-    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
-  });
+    chrome.contextMenus.create({
+      id: "toggleFocusBar",
+      title: "⏱️ Toggle Focus Bar",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+    });
 
-  chrome.contextMenus.create({
-    id: "toggleProgress",
-    title: "📊 Toggle Progress Tracker",
-    contexts: ["all"],
-    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
-  });
+    chrome.contextMenus.create({
+      id: "toggleProgress",
+      title: "📊 Toggle Progress Tracker",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+    });
 
-  // Capture selection (Only shows when something is highlighted)
-  chrome.contextMenus.create({
-    id: "sendToNotes",
-    title: "📝 Send Seleced to Notes",
-    contexts: ["selection"],
-    documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+    // Capture selection (Only shows when something is highlighted)
+    chrome.contextMenus.create({
+      id: "sendToNotes",
+      title: "📝 Send Selected to Notes",
+      contexts: ["selection"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+    });
   });
 });
 
@@ -138,15 +140,16 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 // Function to execute the scraper
-function executeScaper(tabId, mode = 'single') {
+function executeScaper(tabId, mode = 'single', title = null) {
     if (tabId) {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
-        func: (m) => { 
+        func: (m, t) => { 
           window.__scraperMode = m; 
+          window.__bulkScrapeTitle = t; // New: Pass real sidebar title
           console.log('IITM Background: Mode set to', m);
         },
-        args: [mode]
+        args: [mode, title]
       }).then(() => {
         chrome.scripting.executeScript({
           target: { tabId: tabId },
@@ -177,7 +180,7 @@ async function relayToOffscreen(msg) {
 // Listen for messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'triggerScraper' && sender.tab) {
-        executeScaper(sender.tab.id, request.mode || 'single');
+        executeScaper(sender.tab.id, request.mode || 'single', request.title);
     } else if (request.action === 'syncAce' && sender.tab) {
         chrome.scripting.executeScript({
             target: { tabId: sender.tab.id },
@@ -228,16 +231,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
         });
         sendResponse({ success: true });
+    } else if (request.action === 'fetchBlob' && request.url) {
+        fetch(request.url)
+            .then(res => res.blob())
+            .then(blob => {
+                const reader = new FileReader();
+                reader.onloadend = () => sendResponse({ success: true, data: reader.result });
+                reader.readAsDataURL(blob);
+            })
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
     } else if (request.action === 'reloadExtension') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]?.id) {
-                chrome.tabs.reload(tabs[0].id, { bypassCache: true }, () => {
-                    setTimeout(() => chrome.runtime.reload(), 300);
-                });
-            } else {
-                chrome.runtime.reload();
-            }
-        });
+        chrome.runtime.reload();
         sendResponse({ success: true });
         return true;
     }

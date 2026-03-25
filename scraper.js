@@ -32,7 +32,7 @@
         });
 
         let markdown = "";
-        
+        let detectedWeek = "";
         function scrapeAssignment() {
             console.log("Scraping started...");
             
@@ -102,17 +102,29 @@
                 if (courseMatch) assignmentTitle = `${courseMatch[0]} - Detailed Results`;
                 else assignmentTitle += ' - Detailed Results';
             }
-            
-            if (window.__scraperMode === 'consolidateAll') {
-                assignmentTitle = 'Consolidated Detailed Scores';
-            }
         }
+            
+        // Prioritize the Sidebar title if known (passed via bulk scraper)
+        assignmentTitle = window.__bulkScrapeTitle || assignmentTitle;
 
         markdown += `# ${assignmentTitle}\n\n`;
         markdown += `> **Course:** ${courseTitle}\n\n`;
 
         async function scrapeContent() {
-            // --- Score Checker & Syllabus Handling ---
+            const includeAssets = localStorage.getItem('iitm-include-assets') === 'true';
+            window.__capturedImages = [];
+
+            // --- DEEP BREADCRUMB DETECTION (Shared for all modes) ---
+            detectedWeek = "";
+            try {
+                const openedSubItem = document.querySelector('.units__subitems-text.opened, .units__subitems-text.opened-btn');
+                detectedWeek = openedSubItem?.closest('.units__items')?.querySelector('.units__items-title')?.innerText.trim() || '';
+            } catch (e) {}
+
+            // Prioritize the Sidebar title if known (passed via bulk scraper)
+            assignmentTitle = window.__bulkScrapeTitle || assignmentTitle;
+
+            // Metadata extraction complete. DO NOT prepend to markdown yet.
             if (window.location.hostname.includes('score-checker')) {
                 const mode = window.__scraperMode || 'single';
                 if (mode === 'consolidateAll') {
@@ -179,6 +191,20 @@
                 console.log('IITM Scraper: Fast Scraping Mode...');
             }
             // --- End Specialized Handling ---
+
+            // UI Synchronization: Wait for the main dynamic layout or spinner to settle
+            for (let initW = 0; initW < 40; initW++) {
+                const spinner = document.querySelector('mat-spinner, .spinner, [role="progressbar"]');
+                const tabsAlive = document.querySelectorAll('app-tab-bar .tab-item').length > 0;
+                const vidAlive = document.querySelectorAll('.transcript .cue').length > 0;
+                const qAlive = document.querySelectorAll('.gcb-question-row, .question-container, mat-card:not(.mat-mdc-card)').length > 0;
+                
+                if (!spinner && (tabsAlive || vidAlive || qAlive)) {
+                    await new Promise(r => setTimeout(r, 150)); // Tiny layout breather (Optimized)
+                    break;
+                }
+                await new Promise(r => setTimeout(r, 100)); // Faster polling
+            }
 
             const tabButtons = document.querySelectorAll('app-tab-bar .tab-item');
 
@@ -251,79 +277,133 @@
                     });
                 }
                 
-                // --- Resource/PDF Discovery ---
-                const resourceLinks = Array.from(document.querySelectorAll('a[href*=".pdf"], .supplementary-content a, .resource-item a, app-resource-item a'))
-                    .map(a => ({ title: a.innerText.trim() || 'Download Resource', url: a.href }))
-                    .filter((v, i, a) => a.findIndex(t => t.url === v.url) === i); // Unique
+                return finalizeExport(); // Return early for Videos
+            }
 
-                if (resourceLinks.length > 0) {
-                    markdown += `### 📚 Associated Resources\n\n`;
-                    resourceLinks.forEach(res => {
-                        markdown += `- [📄 ${res.title}](${res.url})\n`;
-                    });
-                    markdown += '\n---\n\n';
-                }
-
-                markdown += '\n---\n\n';
-            } else if (initialTabs.length > 0) {
-                console.log(`GRPA detected, scraping ${initialTabs.length} tabs...`);
+            if (initialTabs.length > 0) {
+                console.log(`%c[GRPA SCRAPER] Detected ${initialTabs.length} tabs. Starting high-fidelity extraction...`, 'color: #db2777; font-weight: bold; font-size: 14px;');
+                
+                // GLOBAL DE-DUPLICATION: Ensures we literally never print the exact same piece of code twice across tabs
+                const capturedCodes = new Set();
+                let editorMarkdown = '';
 
                 for (let i = 0; i < initialTabs.length; i++) {
-                    // Re-query buttons to avoid detached elements during tab switching
                     const currentBtn = document.querySelectorAll('app-tab-bar .tab-item')[i];
                     if (!currentBtn) continue;
-
-                        const cleanTabName = tabName.toLowerCase().replace(/\s/g, '');
-                        console.log(`Scraping tab ${i + 1}: ${tabName} (clean: ${cleanTabName})`);
-
-                        currentBtn.click();
-                        // Wait for tab content and verify
-                        let tabSwitched = false;
-                        for (let attempt = 0; attempt < 10; attempt++) {
-                            await new Promise(r => setTimeout(r, 600));
-                            // Check if current view is actually the intended tab
-                            const activeTabNode = document.querySelector('app-tab-bar .tab-item.active');
-                            if (activeTabNode && activeTabNode.innerText.trim().toLowerCase() === tabName.toLowerCase()) {
-                                tabSwitched = true;
-                                break;
-                            }
+                    
+                    const tabName = currentBtn.innerText.trim();
+                    const cleanTabName = tabName.toLowerCase().replace(/\s+/g, '');
+                    
+                    // DEEP LOCKED CHECK: If the tab itself is disabled/locked, do not attempt to open it.
+                    // This prevents ghosting content from the previous tab (the Week 6 issue you saw).
+                    const isDisabled = currentBtn.classList.contains('disabled') || currentBtn.hasAttribute('disabled') || currentBtn.getAttribute('aria-disabled') === 'true';
+                    if (isDisabled) {
+                        console.warn(`  └─ 🔒 Tab "${tabName}" is locked (disabled by portal).`);
+                        if (cleanTabName.includes('solution')) {
+                            markdown += `### 💻 IITM Official Solution\n\n> *Solution code is currently locked and will be available after the deadline.*\n\n---\n\n`;
                         }
-                        if (!tabSwitched) console.warn(`⚠️ Tab ${tabName} may not have loaded correctly.`);
-                        
-                        await syncAce();
+                        continue;
+                    }
 
-                        try {
-                            if (cleanTabName === 'testcases') {
+                    const startTimeTab = Date.now();
+                    console.log(`%c[STAGE ${i+1}/${initialTabs.length}] Opening: ${tabName}`, 'color: #3b82f6; font-weight: bold; padding: 4px; border-left: 4px solid #3b82f6;');
+
+                    currentBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    currentBtn.click();
+                    
+                    // Wait for tab content and verify (Smart Polling)
+                    let tabSwitched = false;
+                    for (let attempt = 0; attempt < 30; attempt++) {
+                        await new Promise(r => setTimeout(r, 200)); 
+                        const activeTabNode = document.querySelector('app-tab-bar .tab-item.active');
+                        // Jump-start if content already exists even if "active" class hasn't hit
+                        const contentCheck = document.querySelector('.left-content, .test-case-type-block, .ace_editor');
+                        if ((activeTabNode && activeTabNode.innerText.trim().toLowerCase() === tabName.toLowerCase()) || (contentCheck && attempt > 5)) {
+                            await new Promise(r => setTimeout(r, 200)); // Layout breather
+                            tabSwitched = true; break;
+                        }
+                    }
+                    if (!tabSwitched) {
+                        console.warn(`%c  ⚠ Tab switch timed out for ${tabName}. Content might be missing.`, 'color: #f59e0b;');
+                    }
+                    
+                    await syncAce();
+
+                    try {
+                        if (cleanTabName === 'testcases') {
+                            console.log(`  └─ ⚙️ Parsing Test Case Subgroups...`);
                             const testTypes = document.querySelectorAll('.test-case-type-block');
                             if (testTypes.length > 0) {
+                                let seenContent = new Set();
                                 for (const typeBtn of testTypes) {
-                                    const typeName = typeBtn.innerText.trim();
-                                    markdown += `### ${typeName}\n\n`;
-                                    typeBtn.click();
-                                    await new Promise(r => setTimeout(r, 1000));
+                                    // Fixes formatting like "Private Tests (\n 14/14 \n)" to be inline
+                                    const typeName = typeBtn.innerText.trim().replace(/\s+/g, ' ');
+                                    const isLocked = typeBtn.querySelector('.locked-case, .lock-img, app-icon[aria-label="Locked"]');
+                                    
+                                    if (isLocked) {
+                                        markdown += `#### 🔒 ${typeName}\n\n> *This test case group is locked and will be revealed after the deadline.*\n\n---\n\n`;
+                                        console.log(`    │  └─ 🔒 Group ${typeName} is locked. Skipping.`);
+                                        continue;
+                                    }
 
-                                    const caseButtons = document.querySelectorAll('.case-btn');
+                                    const isAlreadyActive = typeBtn.classList.contains('active') || typeBtn.getAttribute('aria-selected') === 'true';
+                                    
+                                    console.log(`    ├─ Subgroup: ${typeName}`);
+                                    const oldFirstCase = document.querySelector('.case-btn');
+                                    typeBtn.click();
+                                    
+                                    if (!isAlreadyActive) {
+                                        for (let sw = 0; sw < 25; sw++) { // Up to 5s
+                                            const newFirstCase = document.querySelector('.case-btn');
+                                            if (newFirstCase && newFirstCase !== oldFirstCase) break;
+                                            await new Promise(r => setTimeout(r, 150));
+                                        }
+                                    }
+
+                                    const caseButtons = Array.from(document.querySelectorAll('.case-btn'));
+                                    console.log(`    │  └─ Found ${caseButtons.length} cases in this group.`);
+                                    
+                                    let typeMarkdown = `### ${typeName}\n\n`;
+                                    let groupAdded = false;
+
                                     for (let j = 0; j < caseButtons.length; j++) {
-                                        const currentCaseBtn = document.querySelectorAll('.case-btn')[j];
+                                        const currentCaseBtn = caseButtons[j];
                                         if (!currentCaseBtn) continue;
 
                                         const caseName = currentCaseBtn.innerText.trim();
-                                        markdown += `#### ${caseName}\n\n`;
+                                        console.log(`    │     - Processing Case ${j+1}/${caseButtons.length}: ${caseName}`);
+                                        
+                                        const oldContent = document.querySelector('.test-case-block-content')?.innerText;
+                                        const isCaseActive = currentCaseBtn.classList.contains('active') || currentCaseBtn.getAttribute('aria-selected') === 'true';
+                                        
                                         currentCaseBtn.click();
-                                        await new Promise(r => setTimeout(r, 800)); // Increased for slow portal
-
+                                        
+                                        if (!isCaseActive) {
+                                            for (let scw = 0; scw < 15; scw++) { // Up to 2.2s
+                                                const currentContent = document.querySelector('.test-case-block-content')?.innerText;
+                                                if (currentContent && currentContent !== oldContent) break;
+                                                await new Promise(r => setTimeout(r, 150));
+                                            }
+                                        }
+                                        
                                         const currentCaseBlocks = document.querySelectorAll('.test-case-block');
                                         currentCaseBlocks.forEach(block => {
-                                            const title = block.querySelector('.test-case-block-title')?.innerText.trim();
-                                            const content = block.querySelector('.test-case-block-content')?.innerText.trim();
-                                            if (title && content) {
-                                                markdown += `**${title}:**\n\`\`\`text\n${content}\n\`\`\`\n\n`;
+                                            const titleText = block.querySelector('.test-case-block-title')?.innerText.trim();
+                                            const contentText = block.querySelector('.test-case-block-content')?.innerText.trim();
+                                            if (titleText && contentText) {
+                                                const fingerPrint = `${titleText}:${contentText}`;
+                                                if (!seenContent.has(fingerPrint)) {
+                                                    if (!groupAdded) { markdown += typeMarkdown; groupAdded = true; }
+                                                    markdown += `#### ${caseName}\n\n`;
+                                                    markdown += `**${titleText}:**\n\`\`\`text\n${contentText}\n\`\`\`\n\n`;
+                                                    seenContent.add(fingerPrint);
+                                                }
                                             }
                                         });
                                     }
                                 }
                             } else {
-                                // Fallback for simple test case lists
+                                console.log(`  └─ 🗒️ No subgroup buttons. Standard content dump...`);
                                 const leftContent = document.querySelector('.left-content');
                                 if (leftContent) {
                                     const clone = await processNode(leftContent.cloneNode(true));
@@ -331,71 +411,133 @@
                                 }
                             }
                         } else {
-                            // For Question, Overview, Solution, My Submission, etc.
+                            console.log(`  └─ 📄 Capturing pane content...`);
                             const leftContent = document.querySelector('.left-content');
                             const rightPanel = document.querySelector('.right-panel');
                             
-                            if (leftContent) {
-                                const clone = await processNode(leftContent.cloneNode(true));
-                                markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                            const contentSource = leftContent || document.querySelector('.mat-tab-body-active .mat-mdc-card-content, .mat-tab-body-active .problem-content, .mat-tab-body-active');
+                            if (contentSource) {
+                                const clone = await processNode(contentSource.cloneNode(true));
+                                // SCRUB: We only remove UI elements. WE DO NOT remove <pre> blocks anymore 
+                                // to ensure Template Code isn't accidentally deleted.
+                                clone.querySelectorAll('app-tab-bar, button, .mat-mdc-tab-header, .ace_gutter, .ace_content, textarea.ace_text-input').forEach(el => el.remove());
+                                
+                                const dumpedText = turndownService.turndown(clone.innerHTML).trim();
+                                if (dumpedText) {
+                                    // If we are in the Solution tab, this text dump IS the Official Solution content
+                                    if (cleanTabName.includes('solution') && dumpedText.length > 50) {
+                                        markdown += `### 💻 IITM Official Solution\n\n${dumpedText}\n\n---\n\n`;
+                                    } else {
+                                        markdown += dumpedText + '\n\n';
+                                    }
+                                }
+                                console.log(`  │  └─ Captured ${cleanTabName} text bytes: ${markdown.length}`);
                             }
                             
-                            // If on Solution/My Submission tab and code editor exists, capture it
-                            if ((tabName.toLowerCase().includes('solution') || tabName.toLowerCase().includes('submission')) && rightPanel) {
-                                await syncAce();
-                                const editor = rightPanel.querySelector('.ace_editor');
-                                if (editor) {
-                                    markdown += `### ${tabName} Code\n\n`;
-                                    const code = editor.getAttribute('data-full-code') || editor.querySelector('textarea.ace_text-input')?.value || editor.innerText;
-                                    markdown += `\`\`\`python\n${code.trimEnd()}\n\`\`\`\n\n`;
+                            const nameLower = tabName.toLowerCase();
+                            // W6 FIX: If solution is locked, we MUST capture his code while scraping the Question tab
+                            if ((nameLower.includes('solution') || nameLower.includes('submission') || nameLower.includes('question')) && (rightPanel || document.querySelector('.mat-tab-body-active .ace_editor'))) {
+                                // Verify if solution is locked/not released yet
+                                const isLocked = document.body.innerText.toLowerCase().includes('solution will be available') || 
+                                                 document.body.innerText.toLowerCase().includes('released after the deadline');
+                                                 
+                                if (isLocked && nameLower.includes('solution')) {
+                                    console.warn(`  └─ 🔒 Solution is locked. Skipping code capture.`);
+                                    markdown += `\n> *Solution code is currently locked and will be available after the deadline.*\n\n`;
+                                } else {
+                                    console.log(`  └─ ⌨️ Capturing all visible code editors...`);
+                                    await syncAce();
+                                    
+                                    // Find ALL editors. Scoped to either the active tab body OR the right-panel submission area.
+                                    // NO app-code-editor to prevent the wrapper node from returning duplicated values.
+                                    const editorNodes = Array.from(document.querySelectorAll('.mat-tab-body-active .ace_editor, .right-panel .ace_editor'));
+                                    
+                                    // Filter for visibility and uniqueness
+                                    const visibleEditors = editorNodes.filter(el => {
+                                        const style = window.getComputedStyle(el);
+                                        return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0;
+                                    });
+                                    const uniqueEditors = [...new Set(visibleEditors)];
+                                    
+                                    if (uniqueEditors.length > 0) {
+                                        uniqueEditors.forEach((editor, idx) => {
+                                            const code = editor.getAttribute('data-full-code') || editor.querySelector('textarea.ace_text-input')?.value || editor.innerText;
+                                            const cleanCode = code ? code.trim() : '';
+                                            
+                                            // GLOBAL DEDUPLICATION CHECK: Never print the same code twice
+                                            if (cleanCode && !capturedCodes.has(cleanCode)) {
+                                                capturedCodes.add(cleanCode);
+                                                
+                                                // UNIFORM COHESIVE IDENTIFICATION:
+                                                const tabLower = tabName.toLowerCase();
+                                                const isReadOnly = editor.classList.contains('ace_read-only') || editor.getAttribute('readonly') === 'true' || editor.querySelector('.ace_text-input')?.hasAttribute('readonly');
+                                                const parentText = (editor.closest('.mat-mdc-card, .right-panel, .left-content')?.innerText || "").toLowerCase();
+                                                
+                                                let label = `${tabName} Code`;
+                                                
+                                                // 1. Solution Tab Context
+                                                if (tabLower.includes('solution')) {
+                                                    if (isReadOnly || parentText.includes('official')) {
+                                                        label = `IITM Official Solution`;
+                                                    } else if (uniqueEditors.length > 1 && idx === 0) {
+                                                        label = `IITM Official Solution`; // Best guess first match if not labeled
+                                                    } else {
+                                                        label = `My Submitted Code`;
+                                                    }
+                                                } 
+                                                // 2. Question / Submission Tab Context
+                                                else if (tabLower.includes('submission') || tabLower.includes('question')) {
+                                                    if (parentText.includes('template')) label = `Code Template`;
+                                                    else label = `My Submitted Code`;
+                                                }
+                                                // 3. Uniform Fallback
+                                                else if (uniqueEditors.length > 1) {
+                                                    label = `Code Editor ${idx + 1}`;
+                                                } else {
+                                                    label = `My Submitted Code`; // Default for single editor in non-specific context
+                                                }
+
+                                                editorMarkdown += `### 💻 ${label}\n\n`;
+                                                editorMarkdown += `\`\`\`python\n${code.trimEnd()}\n\`\`\`\n\n---\n\n`;
+                                            }
+                                        });
+                                    } else {
+                                        console.warn('  └─ ⚠ No visible editors found even though submission/solution detected.');
+                                    }
                                 }
                             }
                         }
+                        const duration = ((Date.now() - startTimeTab) / 1000).toFixed(1);
+                        console.log(`%c  └─ ✅ Stage Success (${duration}s)`, 'color: #10b981;');
                     } catch (err) {
-                        console.error(`Error scraping tab ${tabName}:`, err);
+                        console.error(`%c  └─ ❌ ERROR in stage ${tabName}:`, 'color: #ef4444;', err);
                         markdown += `*Error scraping this tab.*\n\n`;
                     }
                     markdown += '---\n\n';
-                }
-
-                // Add "My Solution" from the right panel if it exists
-                const rightPanel = document.querySelector('.right-panel');
-                if (rightPanel) {
-                    await syncAce(); // Ensure latest state is captured
-                    const editor = rightPanel.querySelector('.ace_editor');
-                    if (editor) {
-                        markdown += `## My Solution\n\n`;
-                        const ta = editor.querySelector('textarea.ace_text-input');
-                        const fullCode = editor.getAttribute('data-full-code') || (ta && ta.value && ta.value.length > 10 ? ta.value : null);
-                        
-                        let solutionCode = "";
-                        if (fullCode) {
-                            solutionCode = fullCode;
-                        } else {
-                            // Fallback if data sync failed
-                            const lines = Array.from(editor.querySelectorAll('.ace_line')).map(l => {
-                                const clone = l.cloneNode(true);
-                                clone.querySelectorAll('.ace_indent-guide').forEach(g => g.remove());
-                                return clone.textContent.replace(/\u200B/g, '');
-                            });
-                            solutionCode = lines.join('\n');
-                        }
-
-                        // Try to detect language
-                        const langSelector = rightPanel.querySelector('.mat-mdc-select-value-text');
-                        let lang = 'python';
-                        if (langSelector) {
-                            const selectedLang = langSelector.innerText.toLowerCase();
-                            if (selectedLang.includes('python')) lang = 'python';
-                            else if (selectedLang.includes('java')) lang = 'java';
-                            else if (selectedLang.includes('c++')) lang = 'cpp';
-                        }
-
-                        markdown += `\`\`\`${lang}\n${solutionCode.trimEnd()}\n\`\`\`\n\n`;
-                        markdown += '---\n\n';
-                    }
+                } // End For Loop (initialTabs)
+                
+                // FINAL INJECTION: Place collected editor submissions at the very bottom
+                if (editorMarkdown) {
+                    markdown += editorMarkdown;
                 }
             } else {
+                // Smart polling for normal assignment content to prevent empty downloads
+                console.log('IITM Scraper: Smart polling for normal assignment content...');
+                let isLoaded = false;
+                for (let w = 0; w < 40; w++) {
+                    const qFound = document.querySelectorAll('.gcb-question-row, .question-container, .mcq-question, mat-card').length > 0;
+                    const spinner = document.querySelector('mat-spinner, .spinner, [role="progressbar"]');
+                    
+                    // Stop polling if questions/cards are present and no loading spinner is visible
+                    if (qFound && !spinner) {
+                        await new Promise(r => setTimeout(r, 500)); // Breather for MathJax to finish rendering
+                        isLoaded = true;
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 250));
+                }
+                if (!isLoaded) console.log('⏳ Portal content taking too long or unstructured. Capturing current view...');
+
                 // Regular assignment logic (Dual-mode: GCB & Modern Portal)
                 const headerInfo = document.querySelector('.assessment-top-info, .modules__content-head-title, .title-container');
                 if (headerInfo) markdown += `> ${headerInfo.innerText.trim().replace(/\n\s*\n/g, '\n> ')}\n\n`;
@@ -542,24 +684,59 @@
          * IMPORTANT: This now supports ASYNC image processing for offline reliability
          */
         async function processNode(root) {
-            // 1. Convert Images to Base64 for truly offline reliable markdown
-            const images = Array.from(root.querySelectorAll('img'));
+            const includeAssets = localStorage.getItem('iitm-include-assets') === 'true';
+            
+            // 1. Convert Images to Base64 (ONLY if asset mode is ON)
+            if (includeAssets) {
+                const images = Array.from(root.querySelectorAll('img'));
             for (const img of images) {
                 try {
                     const src = img.src;
                     if (src && !src.startsWith('data:')) {
-                        console.log('🖼️ IITM Offline Scraper: Converting image to Base64:', src);
-                        const response = await fetch(src);
-                        const blob = await response.blob();
-                        const dataURI = await new Promise((resolve) => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => resolve(reader.result);
-                            reader.readAsDataURL(blob);
-                        });
-                        img.src = dataURI;
+                        console.log('🖼️ IITM Offline Scraper: Processing image:', src);
+                        try {
+                            const response = await fetch(src);
+                            const blob = await response.blob();
+                            await saveImage(src, blob, img);
+                        } catch (e) {
+                            console.warn('⚠️ CORS/Fetch blocked on page, trying background relay for:', src);
+                            // FALLBACK: Use background fetch to bypass CORS
+                            const relayResult = await new Promise(resolve => {
+                                chrome.runtime.sendMessage({ action: 'fetchBlob', url: src }, resolve);
+                            });
+                            if (relayResult?.success && relayResult?.data) {
+                                // Convert DataURI back to blob for consistency
+                                const fetchRes = await fetch(relayResult.data);
+                                const blob = await fetchRes.blob();
+                                await saveImage(src, blob, img);
+                                console.log('✅ Background Relay SUCCEEDED for:', src);
+                            } else {
+                                throw new Error(relayResult?.error || 'Relay failed');
+                            }
+                        }
                     }
                 } catch (e) {
-                    console.warn('❌ Failed to convert image to Base64:', img.src, e);
+                    console.warn('❌ Image processing failed even with relay:', img.src, e);
+                }
+            }
+        }
+
+            async function saveImage(src, blob, imgEl) {
+                if (includeAssets) {
+                    const urlParts = src.split('/');
+                    let filename = urlParts[urlParts.length - 1].split('?')[0] || `img_${Date.now()}.png`;
+                    if (!filename.includes('.')) filename += '.png';
+                    
+                    const safeTitle = (assignmentTitle || 'Assignment').replace(/[^\w\s-]/g, '').trim();
+                    imgEl.src = `Resources/${safeTitle}/${filename}`;
+                    window.__capturedImages.push({ title: filename, blob: blob, originalSrc: src });
+                } else {
+                    const dataURI = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                    });
+                    imgEl.src = dataURI;
                 }
             }
 
@@ -635,40 +812,72 @@
         }
 
         async function finalizeExport() {
-            // Final safety filter for any escaped markers
-            let finalMarkdown = markdown.replace(/xxxxxxxxxx/g, '');
+            // Build the final markdown string with metadata header
+            let finalMarkdown = "---\n";
+            finalMarkdown += `Title: ${assignmentTitle || 'Assignment'}\n`;
+            finalMarkdown += `Course: ${courseTitle || 'Unknown Course'}\n`;
+            finalMarkdown += `Breadcrumb: ${detectedWeek || 'General'}\n`;
+            finalMarkdown += "---\n\n";
+            
+            finalMarkdown += (markdown || "").replace(/xxxxxxxxxx/g, '');
 
+            // Global Metadata Extraction
+            const videos = [];
+            const ytIframe = document.querySelector('iframe#player');
+            if (ytIframe?.src) {
+                const src = ytIframe.src;
+                const vidMatch = src.match(/embed\/([^?]+)/);
+                const vidTitle = (document.querySelector('.assessment-top-info, .title-container')?.innerText || assignmentTitle).trim();
+                videos.push({ title: vidTitle, url: vidMatch ? `https://youtube.com/watch?v=${vidMatch[1]}` : src });
+            }
+
+            const resources = Array.from(document.querySelectorAll('a[href*=".pdf"], app-resource-item a, .resource-item a')).map(a => ({ 
+                title: a.innerText.trim() || 'Document', 
+                url: a.href 
+            }));
+            
+            if (window.__capturedImages) {
+                window.__capturedImages.forEach(img => {
+                    resources.push({ title: img.title, blob: img.blob, url: img.originalSrc });
+                });
+            }
+
+            // --- Mode Handling ---
             if (window.__scraperMode === 'copyToClipboard') {
+                console.log('📋 IITM Scraper: Copying results to clipboard...');
                 navigator.clipboard.writeText(finalMarkdown).then(() => {
                     console.log('✅ Copied to clipboard!');
-                }).catch(err => {
-                    console.error('❌ Clipboard failed:', err);
-                });
+                }).catch(err => console.error('❌ Clipboard failed:', err));
                 return;
             }
+
+            const detail = { 
+                markdown: finalMarkdown, 
+                title: assignmentTitle,
+                course: courseTitle,
+                week: detectedWeek, 
+                resources: resources,
+                videos: videos
+            };
 
             if (window.__scraperMode === 'capture') {
-                const detail = { 
-                    markdown: finalMarkdown, 
-                    title: assignmentTitle,
-                    course: courseTitle,
-                    resources: Array.from(document.querySelectorAll('a[href*=".pdf"]')).map(a => ({ title: a.innerText.trim(), url: a.href }))
-                };
+                console.log('📸 IITM Scraper: Dispatched capture event to bulk sequencer.');
                 window.dispatchEvent(new CustomEvent('iitm-markdown-captured', { detail }));
-                window.__scraperMode = 'single'; // Reset
                 return;
             }
 
+            // --- Default: Single File Download ---
+            console.log('⬇️ IITM Scraper: Triggering browser download...');
             const cleanCourse = (courseTitle || 'Course').replace(/[^\w\s-]/g, '').trim();
             const cleanAssignment = (assignmentTitle || 'Assignment').replace(/[^\w\s-]/g, '').trim();
-            const filename = `${cleanCourse} - ${cleanAssignment}.md`;
+            const cleanWeek = (detectedWeek || '').replace(/[^\w\s-]/g, '').trim();
+            
+            let filename = `${cleanCourse} - ${cleanAssignment}.md`;
+            if (cleanWeek) filename = `${cleanCourse} - ${cleanWeek} - ${cleanAssignment}.md`;
 
-            // If we are in bulk mode, we might want to ZIP (handled by portal_enhancements usually)
-            // But if this is a single download, just save as MD
             const blob = new Blob([finalMarkdown], { type: 'text/markdown;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            
             a.href = url;
             a.download = filename;
             document.body.appendChild(a);

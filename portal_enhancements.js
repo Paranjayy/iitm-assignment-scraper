@@ -97,11 +97,27 @@
         let subItems = [];
         const zip = typeof JSZip !== 'undefined' ? new JSZip() : null;
         
+        // Force-expand all weeks to ensure items are rendered in DOM
+        const weeks = document.querySelectorAll('.units__section');
+        for (const week of weeks) {
+            const isExpanded = week.querySelector('.units__subitems'); // If subitems exist, it's probably expanded
+            const header = week.querySelector('.units__section-title') || week.querySelector('mat-panel-header');
+            if (!isExpanded && header) {
+                console.log('📂 Expanding week:', header.innerText.trim());
+                header.click();
+                await new Promise(r => setTimeout(r, 600)); // Wait for expansion animation
+            }
+        }
+
         if (selectedItems.size > 0) {
             subItems = Array.from(document.querySelectorAll('.units__subitems')).filter(item => {
-                const title = item.innerText.split('\n')[0].trim();
-                return selectedItems.has(title);
+                const titleNode = item.querySelector('.unit__item-title');
+                const title = titleNode ? titleNode.textContent.trim() : item.innerText.split('\n')[0].trim();
+                const isMatched = selectedItems.has(title);
+                if (isMatched) console.log(`🎯 Bulk Scraper: Matched selected item "${title}"`);
+                return isMatched;
             });
+            console.log(`📦 Bulk Scraper: Starting capture for ${subItems.length} selected items.`);
         }
 
         if (subItems.length === 0) {
@@ -136,33 +152,72 @@
                 <div id="bulk-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #db2777, #7e22ce); transition: 0.5s;"></div>
             </div>
             <div id="bulk-eta" style="font-size: 10px; color: #444; width: 100%; text-align: right; margin-bottom: 20px; font-weight: 700;">ETA: Calculating...</div>
-            <button id="cancel-bulk-btn" style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">Cancel Scrape</button>
+            <div style="display:flex; gap:10px; width:100%;">
+                <button id="finish-bulk-btn" style="flex:1; background: #db2777; border: none; color: white; padding: 10px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">Stop & Download</button>
+                <button id="cancel-bulk-btn" style="flex:1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">Cancel Scrape</button>
+            </div>
         `;
         document.body.appendChild(overlay);
 
         let cancelled = false;
+        let forceFinish = false;
         document.getElementById('cancel-bulk-btn').onclick = () => { cancelled = true; overlay.remove(); };
+        document.getElementById('finish-bulk-btn').onclick = () => { forceFinish = true; };
 
         const progressText = document.getElementById('bulk-progress-text');
         const progressBar = document.getElementById('bulk-progress-bar');
         const etaText = document.getElementById('bulk-eta');
+        let masterAssetMarkdown = `# 📦 Master Asset Links Backup\n\n*This file contains direct links to all scraped PDF resources, Images, and Video Lectures for offline reference.*\n\n`;
+        let hasAnyAssets = false;
+        let masterVideoList = `### 🎥 Consolidated Video Playlist\n\n`;
+        let hasVideos = false;
 
+        const processedDurations = [];
+        const startTimeTotal = Date.now();
+        let totalCountProcessed = 0;
         for (let i = 0; i < subItems.length; i++) {
-            if (cancelled) break;
-            const item = subItems[i];
-            const title = item.innerText.split('\n')[0].trim();
+            if (cancelled || forceFinish) break;
+            const itemData = subItems[i];
+            const item = itemData.el || itemData; // Handle both metadata objects or raw DOM
+            const title = itemData.text || item.innerText.split('\n')[0].trim();
+            const breadcrumb = itemData.breadcrumb || '';
             
+            const isProgramming = (itemData.isProgramming !== undefined) ? itemData.isProgramming : (item.innerText.toLowerCase().includes('programming') || item.innerText.toLowerCase().includes('grpa'));
+            const startTimeItem = Date.now();
+            
+            // SMART ETA: Start with 25/10 baseline, then use moving average of actual capture times
             const remaining = count - i;
-            const etaSeconds = remaining * 10; // ~10s per item including rendering
+            let avgDuration = isProgramming ? 25 : 10;
+            if (processedDurations.length > 0) {
+                const total = processedDurations.reduce((a, b) => a + b, 0);
+                avgDuration = total / processedDurations.length;
+            }
+            
+            const etaSeconds = Math.ceil(remaining * avgDuration); 
             const mins = Math.floor(etaSeconds / 60);
             const secs = etaSeconds % 60;
             
             progressText.innerText = `Scraping: ${title} (${i+1}/${count})`;
             progressBar.style.width = `${((i + 1) / count) * 100}%`;
-            etaText.innerText = `ETA: ${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
+            etaText.innerText = `ETA: ~${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
             
-            item.click(); // Standard click handles most cases
-            await new Promise(r => setTimeout(r, 8500)); 
+            console.log(`🚀 [${i+1}/${count}] Beginning ${isProgramming ? 'GrPA' : 'Standard'} Capture: ${title}`);
+            item.click(); 
+            
+            // Wait for sidebar title to match selection (Verifies navigation)
+            let navigated = false;
+            for (let navW = 0; navW < 30; navW++) {
+                const currentPortalTitle = (document.querySelector('.assignment-title, .title-container, .modules__content-head-title h2')?.innerText || '').trim();
+                // A lax check to see if the title changed or is at least visible
+                if (currentPortalTitle && (currentPortalTitle.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(currentPortalTitle.toLowerCase()))) {
+                    navigated = true;
+                    // Add an extra small layout breather for stability
+                    await new Promise(r => setTimeout(r, 600));
+                    break;
+                }
+                await new Promise(r => setTimeout(r, 250));
+            }
+            if (!navigated) console.warn(`⚠️ [${i+1}] Navigation timer long for "${title}". Proceeding anyway...`);
 
             const capturedData = await new Promise((resolve) => {
                 const handler = (e) => {
@@ -171,72 +226,124 @@
                 };
                 window.addEventListener('iitm-markdown-captured', handler);
                 window.__scraperMode = 'capture';
-                // Wait another 1s after global wait for portal internal rendering
-                setTimeout(() => chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture' }), 1000);
+                // Trigger actual capture message with real sidebar title
+                chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture', title: title });
+                
                 setTimeout(() => {
-                   window.removeEventListener('iitm-markdown-captured', handler);
-                   resolve(null);
-                }, 10000);
+                    window.removeEventListener('iitm-markdown-captured', handler);
+                    resolve(null);
+                }, 40000); // 40s timeout for slow IITM servers
             });
 
+            const durationItem = (Date.now() - startTimeItem) / 1000;
+            processedDurations.push(durationItem);
+            console.log(`✅ [${i+1}] Captured in ${durationItem.toFixed(1)}s`);
+            
             if (zip && capturedData?.markdown) {
-                const safeTitle = (capturedData.title || title).replace(/[^\w\s-]/g, '').trim();
-                zip.file(`${i+1}. ${safeTitle}.md`, capturedData.markdown);
+                totalCountProcessed++;
+                const courseFolder = zip.folder((capturedData.course || 'Course').replace(/[^\w\s-]/g, '').trim());
+                
+                // Smart filename: Prepend week name from captured metadata for better organization
+                const weekForFile = capturedData.week || breadcrumb || '';
+                const baseTitle = capturedData.title || title;
+                const cleanWeek = weekForFile.replace(/[^\w\s-]/g, '').trim();
+                
+                // Avoid redundant week prefix if title already contains it
+                const needsWeekPrefix = cleanWeek && !baseTitle.toLowerCase().includes(cleanWeek.toLowerCase());
+                const weekPrefix = needsWeekPrefix ? `${cleanWeek} - ` : '';
+                
+                let fullFileName = `${capturedData.course || 'Course'} - ${weekPrefix}${baseTitle}.md`.replace(/[^\w\s\.-]/g, '');
+                
+                // ZIP Time Fix: Set current date to avoid epoch (1970) artifacts on extraction
+                courseFolder.file(fullFileName, capturedData.markdown, { date: new Date() });
                 
                 if (includeAssets && capturedData.resources && capturedData.resources.length > 0) {
-                    const resFolder = zip.folder(`Resources/${safeTitle}`);
+                    hasAnyAssets = true;
+                    masterAssetMarkdown += `## ${fullFileName.replace('.md', '')}\n`;
+                    const resFolder = courseFolder.folder(`Resources/${(capturedData.title || title).replace(/[^\w\s-]/g, '').trim()}`);
                     for (const res of capturedData.resources) {
                         try {
-                            const resBlob = await fetch(res.url).then(r => r.blob());
-                            resFolder.file(res.title.replace(/[^\w\s\.]/g, '') + '.pdf', resBlob);
+                            const resBlob = res.blob || await fetch(res.url).then(r => r.blob());
+                            let filename = res.title;
+                            if (!res.blob) filename = res.title.replace(/[^\w\s\.]/g, '') + '.pdf';
+                            resFolder.file(filename, resBlob, { date: new Date() });
+                            masterAssetMarkdown += `- **${filename}**: ${res.url ? `[Original Cloud Source](${res.url})` : '*[Local Image Extracted]*'}\n`;
                         } catch (e) {
                             console.error('Resource fetch failed:', res.url);
                         }
                     }
+                    masterAssetMarkdown += `\n`;
                 }
+
+                if (capturedData.videos && capturedData.videos.length > 0) {
+                    hasVideos = true;
+                    capturedData.videos.forEach(v => {
+                        masterVideoList += `- **${v.title}**: [Watch on YouTube](${v.url})\n`;
+                    });
+                }
+                console.log(`✅ [${i+1}] Capture SUCCESS: "${fullFileName}" (${durationItem}s).`);
+            } else {
+                console.error(`❌ [${i+1}] Capture FAILED: "${title}" after ${durationItem}s. Skipping to next.`);
             }
+        }
+        
+        const totalDuration = ((Date.now() - startTimeTotal) / 1000).toFixed(1);
+        console.log(`🏁 BULK COMPLETED: Processed ${totalCountProcessed}/${count} items in ${totalDuration}s.`);
+        
+        if (hasVideos) {
+            masterAssetMarkdown += `\n---\n\n` + masterVideoList;
+        }
+        
+        if (hasAnyAssets || hasVideos) {
+            zip.file('Asset_Links_Backup.md', masterAssetMarkdown);
         }
 
         if (!cancelled && zip && Object.keys(zip.files).length > 0) {
             const files = Object.keys(zip.files).filter(k => !zip.files[k].dir);
-            
-            if (files.length === 1) {
-                // SINGLE ITEM: Direct MD download (More convenient)
-                progressText.innerText = "Finalizing individual export...";
-                const fileName = files[0];
-                const content = await zip.files[fileName].async("string");
-                const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 10000);
-                overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Your file is ready.</div>`;
+            console.log(`📦 Bulk Scraper: Finalizing ${files.length} items for bundle...`);
+
+            if (files.length <= 10) {
+                // SMALL BATCH: Direct in-page ZIP generation (High Reliability)
+                progressText.innerText = "Generating ZIP bundle in-page...";
+                try {
+                    const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+                    const url = URL.createObjectURL(content);
+                    const a = document.createElement('a');
+                    const zipName = `IITM_Course_ZIP_${Date.now()}.zip`;
+                    a.href = url;
+                    a.download = zipName;
+                    document.body.appendChild(a);
+                    a.click();
+                    console.log('✅ ZIP Download Triggered:', zipName);
+                    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 15000);
+                    overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">${files.length} items saved.</div>`;
+                } catch (err) {
+                    console.error('❌ In-page ZIP generation failed:', err);
+                    progressText.innerText = "Error building ZIP. Try smaller batch.";
+                }
             } else {
-                // MULTIPLE ITEMS: Generate official ZIP offscreen
-                progressText.innerText = "Stabilizing & Finalizing ZIP...";
+                // LARGE BATCH: Offscreen relay to prevent UI freezing
+                progressText.innerText = "Stabilizing & Finalizing ZIP (Offscreen)...";
                 const zipFiles = [];
                 for (const name in zip.files) {
                     const file = zip.files[name];
                     if (!file.dir) {
-                        const content = await file.async("string");
-                        zipFiles.push({ name, content, isBinary: false });
+                        const ext = name.split('.').pop().toLowerCase();
+                        const isBinary = ['png', 'jpg', 'jpeg', 'pdf', 'gif', 'webp'].includes(ext);
+                        const content = await file.async(isBinary ? "base64" : "string");
+                        zipFiles.push({ name, content, isBinary });
                     }
                 }
                 
                 chrome.runtime.sendMessage({ 
                     action: 'generateZip', 
-                    data: { 
-                        files: zipFiles, 
-                        zipName: `IITM_Course_ZIP_${Date.now()}.zip` 
-                    } 
+                    data: { files: zipFiles, zipName: `IITM_Course_ZIP_${Date.now()}.zip` } 
                 });
-                overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Your ZIP bundle is being generated.</div>`;
+                overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Large bundle relay started. Check downloads.</div>`;
             }
-            setTimeout(() => overlay.remove(), 2500);
+            setTimeout(() => { if (document.body.contains(overlay)) overlay.remove(); }, 4000);
         } else {
+            console.warn('⚠️ Bulk Scraper: No files to zip or cancelled.');
             overlay.remove();
         }
         selectedItems.clear();
@@ -355,12 +462,27 @@
                         input.oninput();
                     }
                 }
-            } else if (isAction && isSpotlightOpen && e.isTrusted) {
-                // REDIRECT Cmd+J to the spotlight's internal logic
+            } else if (isAction && e.isTrusted) {
+                // Cmd+J: Trigger Action Mode directly (even if closed)
                 e.preventDefault();
-                e.stopImmediatePropagation();
-                const event = new KeyboardEvent('keydown', { key: 'j', metaKey: true, bubbles: true, cancelable: true });
-                spotlight.dispatchEvent(event);
+                
+                // Open spotlight if it's not open already
+                if (!isSpotlightOpen) {
+                    isSpotlightOpen = true;
+                    spotlight.style.display = 'flex';
+                    const input = document.getElementById('spotlight-input');
+                    if (input) {
+                        input.value = '';
+                        input.focus();
+                        input.oninput();
+                    }
+                }
+                
+                const existing = document.getElementById('spotlight-action-submenu');
+                if (existing) existing.remove();
+                else if (typeof showActionSubmenu === 'function') {
+                    showActionSubmenu(null);
+                }
             }
             
             if (e.key === 'Escape') {
@@ -371,17 +493,20 @@
         spotlightInitialized = true;
 
 
-        document.addEventListener('click', (e) => {
+        document.addEventListener('mousedown', (e) => {
             const spotlight = document.getElementById('iitm-spotlight');
             if (spotlight && spotlight.style.display === 'flex') {
                 const box = spotlight.querySelector('.spotlight-box');
-                const isClickInside = box && box.contains(e.target);
+                
+                // CRITICAL: If an element is removed from DOM during click (re-render), 
+                // isConnected will be false but we still want to count it as "inside".
+                const isClickInside = box && (box.contains(e.target) || !e.target.isConnected);
                 
                 // IGNORE clicks from search toggle AND sidebar toggle (prevents auto-close bug)
                 const isHeaderBtn = !!e.target.closest('#iitm-header-search');
                 const isSidebarBtn = !!e.target.closest('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
                 
-                if (!isClickInside && !isHeaderBtn && !isSidebarBtn) {
+                if (!isClickInside && !isHeaderBtn && !isSidebarBtn && e.target.isConnected) {
                     isSpotlightOpen = false;
                     spotlight.style.display = 'none';
                 }
@@ -881,6 +1006,7 @@
                         <div class="filter-chip" data-filter="video">Videos</div>
                         <div class="filter-chip" data-filter="graded">Graded</div>
                         <div class="filter-chip" data-filter="grpa">GrPA</div>
+                        <div class="filter-chip" data-filter="pending" style="border-color: rgba(244, 67, 54, 0.4); color: #f44336; background: rgba(244, 67, 54, 0.05);">Pending</div>
                         <div class="filter-chip" data-filter="assets">Assets</div>
                         <div class="filter-chip" data-filter="command">Commands</div>
                         <div class="filter-chip" data-filter="selected">Selected</div>
@@ -889,10 +1015,10 @@
                     <div class="spotlight-footer">
                         <div id="selection-counter" style="color:#db2777; font-weight:800; font-family: 'JetBrains Mono', monospace;"></div>
                         <div style="display: flex; gap: 20px; align-items: center;">
-                            <div style="display: flex; align-items: center; gap: 6px;">
+                            <div id="footer-open-btn" style="display: flex; align-items: center; gap: 6px; cursor: pointer; transition: 0.2s;" onmousedown="e.stopPropagation(); e.preventDefault(); triggerSelection(currentMatches[selectedIndex]);">
                                 <span style="opacity: 0.8; font-weight: 600;">Open</span> <span style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #ccc; border: 1px solid rgba(255,255,255,0.1);">↵</span>
                             </div>
-                            <div id="footer-actions-hint" style="display: flex; align-items: center; gap: 6px;">
+                            <div id="footer-actions-btn" style="display: flex; align-items: center; gap: 6px; cursor: pointer; transition: 0.2s;">
                                 <span style="opacity: 0.8; font-weight: 600;">Actions</span>
                                 <span style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #ccc; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.4);">⌘ J</span>
                                 <span id="footer-assets-status" style="margin-left:5px; font-size:9px; color:#db2777; font-weight:900;">(${includeAssets ? 'ASSETS ON' : 'ASSETS OFF'})</span>
@@ -925,6 +1051,87 @@
             };
         }
 
+        const footerActions = document.getElementById('footer-actions-btn');
+        if (footerActions) {
+            footerActions.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const existing = document.getElementById('spotlight-action-submenu');
+                if (existing) existing.remove();
+                else {
+                    const input = document.getElementById('spotlight-input');
+                    showActionSubmenu(null);
+                }
+            };
+        }
+
+        let lastSelectedIndex = -1; // For Shift+Click selection
+
+        const triggerSelection = (item, event = null) => {
+            if (!item) return;
+
+            // Handle Shift+Click range selection
+            if (event && event.shiftKey && lastSelectedIndex >= 0) {
+                const currentIndex = currentMatches.indexOf(item);
+                if (currentIndex >= 0) {
+                    const [start, end] = [Math.min(lastSelectedIndex, currentIndex), Math.max(lastSelectedIndex, currentIndex)];
+                    // Decide whether to select or deselect based on the FIRST item in range's toggle state? 
+                    // Usually, Shift-click ADDS to selection if the range wasn't selected, or preserves state.
+                    // Implementation: Toggle ALL items in range to the state of the TARGET item's toggle.
+                    const targetState = !selectedItems.has(item.text);
+                    for (let r = start; r <= end; r++) {
+                        const rItem = currentMatches[r];
+                        if (rItem && !rItem.actionId && !rItem.url) { // Only select actual assignment items
+                            if (targetState) selectedItems.add(rItem.text);
+                            else selectedItems.delete(rItem.text);
+                        }
+                    }
+                    localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
+                    renderResults(items, true);
+                    return;
+                }
+            }
+
+            if (item.actionId) {
+                if (item.actionId === 'toggleAssets') {
+                    includeAssets = !includeAssets;
+                    localStorage.setItem('iitm-include-assets', includeAssets);
+                    const indicator = document.getElementById('asset-indicator');
+                    if (indicator) indicator.style.display = includeAssets ? 'flex' : 'none';
+                    const status = document.getElementById('footer-assets-status');
+                    if (status) status.innerText = `(${includeAssets ? 'ASSETS ON' : 'ASSETS OFF'})`;
+                    input.oninput(null, true);
+                } else if (item.actionId === 'reloadExtension') {
+                    spotlight.style.display = 'none';
+                    chrome.runtime.sendMessage({ action: 'reloadExtension' });
+                } else if (item.actionId.includes('explain')) {
+                    spotlight.style.display = 'none';
+                    openInAI(item.actionId.replace('explain', '').toLowerCase());
+                } else {
+                    spotlight.style.display = 'none';
+                    handleUIToggle(item.actionId);
+                }
+            } else {
+                // If the click happened on an item (NOT an action), toggle its selection
+                if (selectedItems.has(item.text)) selectedItems.delete(item.text);
+                else selectedItems.add(item.text);
+                
+                lastSelectedIndex = currentMatches.indexOf(item);
+                localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
+                renderResults(items, true);
+
+                // Option: If NOT clicking a checkbox/meta area, just navigate? 
+                // User's request suggests they WANT selection for bulk, so we toggle.
+                // But if they press ENTER (no event), we navigate.
+                if (!event) {
+                    spotlight.style.display = 'none';
+                    if (item.el) (item.el.closest('button') || item.el).click();
+                    else if (item.url) window.location.href = item.url;
+                }
+            }
+        };
+
         const updatePreview = (item) => {
             // Preview removed as per user request
         };
@@ -933,37 +1140,46 @@
             const counter = document.getElementById('selection-counter');
             if (counter) counter.innerText = selectedItems.size > 0 ? `📦 ${selectedItems.size} Selected` : '';
             
+            const q = input.value.toLowerCase().trim();
             results.innerHTML = '';
             
             // GROUPING DATA
             const groupMap = {
                 'SYSTEM COMMANDS': [],
+                'PROGRAMMING EXAMS (OPPE/NPPE)': [],
                 'LECTURE VIDEOS': [],
                 'PROGRAMMING ASSIGNMENTS': [],
-                'GRADED ASSIGNMENTS & QUIZZES': [],
+                'GRADED ASSIGNMENTS': [],
+                'GRADED QUIZZES': [],
                 'COURSE OUTLINE': []
             };
             
             items.forEach(item => {
+                const q = input.value.toLowerCase().trim();
                 const tag = (item.typeLabel || '').toLowerCase();
                 const text = (item.text || '').toLowerCase();
                 const bread = (item.breadcrumb || '').toLowerCase();
                 const desc = (item.description || '').toLowerCase();
                 
-                const matchesSearch = text.includes(query) || bread.includes(query) || desc.includes(query) || tag.includes(query);
-                if (query && !matchesSearch) return;
+                const matchesSearch = text.includes(q) || bread.includes(q) || desc.includes(q) || tag.includes(q);
+                if (q && !matchesSearch) return;
+
+                const isNote = text.includes('practice') || text.includes('not graded') || text.includes('non-graded') || text.includes('mock') || text.includes('ungraded');
+                const isExam = (text.includes('oppe') || text.includes('nppe') || bread.includes('oppe') || bread.includes('nppe')) && !isNote;
+                const isProgrammingFlag = item.isProgramming || text.includes('programming') || tag.includes('grpa');
+                const isGrPA_Explicit = isProgrammingFlag && (item.isGraded || text.includes('graded') || tag.includes('grpa') || desc.includes('graded'));
+                const isGrPA = isGrPA_Explicit && !isExam && !isNote; 
+                const isQuiz = (tag.includes('quiz') || text.includes('quiz')) && !isGrPA && !isExam && !isNote;
+                const isGraded = (item.isGraded || tag.includes('graded') || text.includes('graded assignment') || desc.includes('graded')) && !isProgrammingFlag && !isGrPA && !isExam && !isNote && !isQuiz;
 
                 let matchesFilter = true;
-                const isExam = text.includes('oppe') || text.includes('nppe') || bread.includes('oppe') || bread.includes('nppe');
-                const isGrPA = (item.isProgramming === true && item.isGraded === true) && !isExam; 
-                const isQuiz = (tag.includes('graded') || tag.includes('quiz') || text.includes('graded assignment')) && !isGrPA && !isExam && item.isGraded === true;
-
                 if (activeFilter !== 'all') {
-                    if (activeFilter === 'video') matchesFilter = tag.includes('video');
-                    else if (activeFilter === 'graded') matchesFilter = isQuiz && !text.includes('not graded');
+                    if (activeFilter === 'video') matchesFilter = tag.includes('video') && !isNote;
+                    else if (activeFilter === 'graded') matchesFilter = isGraded;
                     else if (activeFilter === 'grpa') matchesFilter = isGrPA;
                     else if (activeFilter === 'assets') matchesFilter = item.hasAssets;
                     else if (activeFilter === 'command') matchesFilter = item.actionId || bread.includes('system');
+                    else if (activeFilter === 'pending') matchesFilter = (isGraded || isGrPA || isQuiz || isExam) && !item.isDone;
                     else matchesFilter = false;
                 }
                 
@@ -971,9 +1187,10 @@
                    let group = 'COURSE OUTLINE';
                    if (item.actionId || bread.includes('system')) group = 'SYSTEM COMMANDS';
                    else if (isExam) group = 'PROGRAMMING EXAMS (OPPE/NPPE)';
-                   else if (tag.includes('video')) group = 'LECTURE VIDEOS';
+                   else if (tag.includes('video') && !isNote) group = 'LECTURE VIDEOS';
                    else if (isGrPA) group = 'PROGRAMMING ASSIGNMENTS';
-                   else if (isQuiz) group = 'GRADED ASSIGNMENTS & QUIZZES';
+                   else if (isQuiz) group = 'GRADED QUIZZES';
+                   else if (isGraded) group = 'GRADED ASSIGNMENTS';
                    
                    groupMap[group] = groupMap[group] || [];
                    groupMap[group].push(item);
@@ -985,9 +1202,15 @@
                 const groupItems = groupMap[groupName];
                 if (groupItems.length === 0) return;
 
-                const query = input.value.toLowerCase().trim();
+                const currentQuery = (input.value || '').toLowerCase().trim();
                 let isCollapsed = collapsedGroups.has(groupName);
-                if (query.length > 0) isCollapsed = false; // Auto-expand when searching
+                
+                // Only auto-expand if the query WAS empty and now isn't
+                if (currentQuery.length > 0 && (!window.__iitm_prev_query || window.__iitm_prev_query === '')) {
+                    isCollapsed = false;
+                    collapsedGroups.delete(groupName);
+                }
+                window.__iitm_prev_query = currentQuery;
                 
                 const header = document.createElement('div');
                 header.className = `group-header ${isCollapsed ? 'collapsed' : ''}`;
@@ -997,11 +1220,27 @@
                         <span style="font-size:8px; transition:0.2s; transform: rotate(${isCollapsed ? '-90deg' : '0deg'})">▼</span>
                         <span>${groupName}</span>
                     </div>
-                    <span style="opacity:0.3; font-weight:800;">${groupItems.length}</span>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        ${groupName !== 'SYSTEM COMMANDS' ? 
+                          `<span class="group-select-btn" style="font-size:8px; padding:2px 8px; background:rgba(219,39,119,0.1); color:#db2777; border-radius:10px; font-weight:900;">SELECT GROUP</span>` 
+                          : ''}
+                        <span style="opacity:0.8; font-weight:800; color:#fff; font-size:10px;">${groupItems.length}</span>
+                    </div>
                 `;
                 
-                header.onclick = (e) => {
-                    e.stopPropagation();
+                header.onmousedown = (e) => {
+                    const selectBtn = e.target.closest('.group-select-btn');
+                    if (selectBtn) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const allNames = groupItems.map(gi => gi.text);
+                        const allInGroupSelected = allNames.every(name => selectedItems.has(name));
+                        if (allInGroupSelected) allNames.forEach(name => selectedItems.delete(name));
+                        else allNames.forEach(name => selectedItems.add(name));
+                        localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
+                        renderResults(items, true);
+                        return;
+                    }
                     if (collapsedGroups.has(groupName)) collapsedGroups.delete(groupName);
                     else collapsedGroups.add(groupName);
                     localStorage.setItem('iitm-collapsed-groups', JSON.stringify(Array.from(collapsedGroups)));
@@ -1030,34 +1269,10 @@
                             </div>
                         `;
 
-                        div.onclick = () => {
-                            if (item.actionId) {
-                                if (item.actionId === 'toggleAssets') {
-                                    includeAssets = !includeAssets;
-                                    localStorage.setItem('iitm-include-assets', includeAssets);
-                                    const assetBtn = document.getElementById('asset-toggle-btn');
-                                    if (assetBtn) {
-                                        assetBtn.classList.toggle('active', includeAssets);
-                                        assetBtn.innerText = `Assets: ${includeAssets ? 'ON' : 'OFF'}`;
-                                    }
-                                    const indicator = document.getElementById('asset-indicator');
-                                    if (indicator) indicator.style.display = includeAssets ? 'flex' : 'none';
-                                    input.oninput(null, true);
-                                } else if (item.actionId === 'reloadExtension') {
-                                    spotlight.style.display = 'none';
-                                    chrome.runtime.sendMessage({ action: 'reloadExtension' });
-                                } else if (item.actionId.includes('explain')) {
-                                    spotlight.style.display = 'none';
-                                    openInAI(item.actionId.replace('explain', '').toLowerCase());
-                                } else {
-                                    spotlight.style.display = 'none';
-                                    handleUIToggle(item.actionId);
-                                }
-                            } else {
-                                spotlight.style.display = 'none';
-                                if (item.el) (item.el.closest('button') || item.el).click();
-                                else if (item.url) window.location.href = item.url;
-                            }
+                        div.onmousedown = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            triggerSelection(item, e);
                         };
                         results.appendChild(div);
                     });
@@ -1070,11 +1285,20 @@
 
         const getItems = () => {
             // Sites uses Angular's units__items for weeks and unit__subitems for contents
-            const headers = Array.from(document.querySelectorAll('.units__items'));
+            let headers = Array.from(document.querySelectorAll('.units__items'));
+            // Refined fallback: Iterate sequentially to avoid double-counting nested Angular fragments
+            if (headers.length === 0) headers = Array.from(document.querySelectorAll('.mat-expansion-panel'));
+            if (headers.length === 0) headers = Array.from(document.querySelectorAll('app-course-unit-header'));
             const allItems = [];
             
             headers.forEach(weekEl => {
-                const weekTitle = weekEl.querySelector('.units__items-title')?.innerText.trim() || 'General';
+                const weekTitle = (
+                    weekEl.querySelector('.units__items-title span')?.innerText.trim() || 
+                    weekEl.querySelector('.units__items-title')?.innerText.trim() || 
+                    weekEl.querySelector('.mat-expansion-panel-header-title')?.innerText.trim() || 
+                    weekEl.querySelector('mat-panel-title')?.innerText.trim() || 
+                    'General'
+                ).split('\n')[0].trim();
                 
                 // Add the Week itself
                 const weekHeader = weekEl.querySelector('.units__items-title');
@@ -1094,7 +1318,7 @@
                     const titleText = sub.querySelector('.units__subitems-title span')?.innerText.trim() || sub.innerText.split('\n')[0].trim();
                     const subText = sub.innerText.toLowerCase();
                     const subTagText = sub.querySelector('.units__subitems-videos')?.innerText.trim() || 'Lesson';
-                    const isProgramming = subText.includes('programming assignment') || subText.includes('programming question') || subText.includes('grpa');
+                    let isProgramming = subText.includes('programming assignment') || subText.includes('programming question') || subText.includes('grpa');
                     
                     let color = '#2e7d32';
                     let label = subTagText;
@@ -1102,6 +1326,7 @@
                     if (subTagText.toLowerCase().includes('video') || titleText.startsWith('L') || titleText.toLowerCase().includes('lecture')) {
                         color = '#c62828';
                         label = 'Video';
+                        isProgramming = false; // Prevent cross-pollution
                     } else if (isProgramming) {
                         color = '#6a1b9a';
                         label = 'GrPA';
@@ -1112,7 +1337,19 @@
                     }
                     
                     const hasAssets = !!(sub.querySelector('mat-icon') && subText.includes('resource')) || !!sub.querySelector('.units__subitems-resources') || (subText.includes('pdf') || subText.includes('slides'));
-                    const isGraded = label === 'Graded' || label === 'GrPA' || (!titleText.toLowerCase().includes('not graded') && !titleText.toLowerCase().includes('practice') && !titleText.toLowerCase().includes('mock'));
+                    const isGraded_Explicit = label === 'Graded' || label === 'GrPA' || subText.includes('graded');
+                    const isGraded = isGraded_Explicit && (!titleText.toLowerCase().includes('not graded') && !titleText.toLowerCase().includes('practice') && !titleText.toLowerCase().includes('mock') && !titleText.toLowerCase().includes('ungraded'));
+                    
+                    const isDone = !!(
+                        sub.querySelector('.submitted-icon, .units__subitems-videos-done, mat-icon.done, .submitted, .units__subitems--completed, .completed') || 
+                        sub.innerHTML.includes('done') ||
+                        sub.innerHTML.includes('check_circle') ||
+                        sub.querySelector('mat-icon[style*="rgb(46, 125, 50)"]') || 
+                        sub.querySelector('mat-icon[style*="rgb(239, 108, 0)"]') ||
+                        sub.querySelector('mat-icon[style*="rgb(103, 58, 183)"]') || 
+                        sub.querySelector('.mat-icon-no-color.done') ||
+                        sub.querySelector('.units__subitems--progress-icon.done')
+                    );
                     
                     allItems.push({
                         text: titleText,
@@ -1124,7 +1361,8 @@
                         color: color,
                         hasAssets: hasAssets,
                         isProgramming: isProgramming,
-                        isGraded: isGraded
+                        isGraded: isGraded,
+                        isDone: isDone
                     });
                 });
             });
@@ -1225,6 +1463,8 @@
             
             let allActions = [
                 { name: 'Bulk Export All Weeks', key: 'B', run: () => bulkScrapeAll(), global: true },
+                { name: 'Export Course Syllabus', key: 'S', run: () => chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'exportSyllabus' }), global: true },
+                { name: 'Deep Search Transcription', key: 'T', run: () => { input.value = 'transcript:'; input.focus(); }, global: true },
                 { name: 'Toggle Assets Scraper', key: 'A', run: () => {
                     includeAssets = !includeAssets;
                     localStorage.setItem('iitm-include-assets', includeAssets);
@@ -1234,6 +1474,24 @@
                     if (status) status.innerText = `(${includeAssets ? 'ASSETS ON' : 'ASSETS OFF'})`;
                     input.oninput(null, true);
                 }, global: true },
+                { name: 'Toggle Floating Buttons', key: 'F', run: () => {
+                    const btns = document.getElementById('iitm-btn-container');
+                    if (btns) btns.style.display = btns.style.display === 'none' ? 'flex' : 'none';
+                }, global: true },
+                { name: 'Toggle Dark Mode', key: 'D', run: () => (typeof toggleDarkMode === 'function') ? toggleDarkMode() : console.log('Dark mode toggle failed'), global: true },
+                { name: 'Unlock Editor/Copy', key: 'U', run: () => {
+                    document.oncontextmenu = null; document.onselectstart = null;
+                    document.querySelectorAll('*').forEach(el => { el.style.userSelect = 'auto'; el.style.pointerEvents = 'auto'; });
+                    showToast('Editor Unlocked');
+                }, global: true },
+                { name: 'AI Explain (ChatGPT)', key: 'C', run: () => window.dispatchEvent(new CustomEvent('iitm-trigger-ai', { detail: { service: 'chatgpt' } })), global: true },
+                { name: 'AI Solve (Claude)', key: 'K', run: () => window.dispatchEvent(new CustomEvent('iitm-trigger-ai', { detail: { service: 'claude' } })), global: true },
+                { name: 'AI Brainstorm (Gemini)', key: 'G', run: () => window.dispatchEvent(new CustomEvent('iitm-trigger-ai', { detail: { service: 'gemini' } })), global: true },
+                { name: 'Sync Ace Editors', key: 'E', run: () => chrome.runtime.sendMessage({ action: 'syncAce' }), global: true },
+                { name: 'Clear History', key: 'X', run: () => {
+                   localStorage.removeItem('iitm_spotlight_history');
+                   showToast('History Purged');
+                }, global: true },
                 { name: 'Reload Extension', key: 'R', run: () => {
                     spotlight.style.display = 'none';
                     chrome.runtime.sendMessage({ action: 'reloadExtension' });
@@ -1242,7 +1500,7 @@
 
             if (item) {
                 allActions.unshift(
-                    { name: `Open "${item.text.substring(0,20)}..."`, key: '↵', run: () => item.onclick() },
+                    { name: `Open "${item.text.substring(0,20)}..."`, key: '↵', run: () => triggerSelection(item) },
                     { name: 'Toggle Selection', key: 'Tab', run: () => {
                         if (selectedItems.has(item.text)) selectedItems.delete(item.text);
                         else selectedItems.add(item.text);
@@ -1529,7 +1787,11 @@
         }
 
         // Gather Stats accurately from the sidebar elements
-        const subItems = Array.from(document.querySelectorAll('.units__subitems'));
+        // Accurate stat discovery using robust iterative Angular component queries
+        let subItems = Array.from(document.querySelectorAll('.units__subitems'));
+        if (subItems.length === 0) {
+            subItems = Array.from(document.querySelectorAll('app-course-unit-item'));
+        }
         let stats = {
             videos: 0, totalVideos: 0,
             graded: 0, totalGraded: 0,
@@ -1540,51 +1802,61 @@
         subItems.forEach(item => {
             const t = item.innerText.toLowerCase();
             const tag = item.querySelector('.units__subitems-videos')?.innerText.toLowerCase() || '';
-            // Robust completion detection: Tick marks, submitted icons, and mat-icon done states
+            // ULTIMATE Completion Detection: Checks icons, text, classes, and styles (Orange/Green/Purple)
             const isDone = !!(
-                item.querySelector('.submitted-icon, .units__subitems-videos-done, mat-icon.done') || 
-                item.innerText.includes('check_circle') || 
-                item.innerText.includes('check') ||
-                item.classList.contains('completed')
+                item.querySelector('.submitted-icon, .units__subitems-videos-done, mat-icon.done, .submitted, .units__subitems--completed, .completed') || 
+                item.innerHTML.includes('done') ||
+                item.innerHTML.includes('check_circle') ||
+                item.querySelector('mat-icon[style*="rgb(46, 125, 50)"]') || 
+                item.querySelector('mat-icon[style*="rgb(239, 108, 0)"]') ||
+                item.querySelector('mat-icon[style*="rgb(103, 58, 183)"]') || // Purple GrPA done
+                item.querySelector('.mat-icon-no-color.done') ||
+                item.querySelector('.units__subitems--progress-icon.done')
             );
             
-            const isNote = t.includes('not graded') || t.includes('practice') || t.includes('mock') || t.includes('non-graded');
-            const isGrPA = t.includes('grpa') || (t.includes('programming') && t.includes('graded')) || (t.includes('graded') && t.includes('assignment'));
-            const isQuiz = (t.includes('quiz') || t.includes('exam')) && !isNote;
+            const parentWeek = item.closest('.units__items, .mat-expansion-panel, app-course-unit-header');
+            const weekText = parentWeek ? (parentWeek.querySelector('.units__items-title, .mat-expansion-panel-header-title')?.innerText || parentWeek.innerText).toLowerCase() : '';
+            
+            const isNote = t.includes('not graded') || t.includes('practice') || t.includes('mock') || t.includes('non-graded') || t.includes('ungraded');
+            const isExam = t.includes('oppe') || t.includes('nppe') || weekText.includes('oppe') || weekText.includes('nppe');
+            
+            const isProgrammingFlag = t.includes('programming') || tag.includes('grpa') || t.includes('grpa');
+            const isGrPA = isProgrammingFlag && !isExam && !isNote;
+            const isQuiz = (t.includes('quiz') || t.includes('exam')) && !isNote && !isGrPA && !isExam;
+            const isGraded = (t.includes('graded') && t.includes('assignment')) && !isGrPA && !isExam && !isNote && !isQuiz;
 
-            if (tag.includes('video')) {
+            if (tag.includes('video') || t.includes('lecture')) {
                 stats.totalVideos++;
                 if (isDone) stats.videos++;
             } else if (isGrPA) {
-                // Focus completion ONLY on these (Graded Programming / GrPA)
                 stats.totalGrpa++;
                 if (isDone) stats.grpa++;
+            } else if (isGraded) {
+                stats.totalGraded++;
+                if (isDone) stats.graded++;
             } else if (isQuiz) {
                 stats.totalQuizzes++;
                 if (isDone) stats.quizzes++;
-            } else if (!isNote) {
-                stats.totalGraded++;
-                if (isDone) stats.graded++;
             }
         });
 
-        const done = stats.grpa;
-        const total = stats.totalGrpa;
-        const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+        const totalPoints = (stats.totalGraded + stats.totalGrpa) || 1;
+        const totalDone = stats.graded + stats.grpa;
+        const progress = Math.round((totalDone / totalPoints) * 100);
 
         card.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <span class="progress-label" style="font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:0.5px;">Graded Prog Completion</span>
-                <span style="font-weight:900; color:#db2777; font-size:13px;">${progress}%</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span style="font-size:10px; font-weight:800; color:#444; letter-spacing:0.05em; text-transform:uppercase;">Graded Prog Completion</span>
+                <span style="font-size:14px; font-weight:900; color:#d32f2f;">${progress}%</span>
             </div>
-            <div class="progress-bg" style="width:100%; height:8px; border-radius:4px; margin-bottom:12px; overflow:hidden; background:rgba(255,255,255,0.05);">
-                <div style="width:${progress}%; height:100%; background:linear-gradient(90deg, #db2777, #7e22ce); border-radius:4px; transition: width 1.2s cubic-bezier(0.19, 1, 0.22, 1);"></div>
+            <div style="height:6px; background:#f0f0f0; border-radius:3px; overflow:hidden; margin-bottom:15px; border:1px solid #eee;">
+                <div style="width:${progress}%; height:100%; background:linear-gradient(90deg, #d32f2f, #f44336); transition: width 1s ease;"></div>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; font-size:10px; font-weight:700;">
-                <div style="display:flex; align-items:center; gap:6px;"><span style="filter:grayscale(0.6);">🎬</span> Videos: ${stats.videos}/${stats.totalVideos}</div>
-                <div style="display:flex; align-items:center; gap:6px;"><span style="filter:grayscale(0.6);">📝</span> Graded: ${stats.graded}/${stats.totalGraded}</div>
-                <div style="display:flex; align-items:center; gap:6px;"><span style="color:#db2777;">💻</span> GrPA/GA: ${stats.grpa}/${stats.totalGrpa}</div>
-                <div style="display:flex; align-items:center; gap:6px;"><span style="color:#ef6c00;">🏆</span> Quizzes: ${stats.quizzes}/${stats.totalQuizzes}</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div style="font-size:10px; color:#666;">🎥 Videos: <b>${stats.videos}/${stats.totalVideos}</b></div>
+                <div style="font-size:10px; color:#e65100;">📝 Graded: <b>${stats.graded}/${stats.totalGraded}</b></div>
+                <div style="font-size:10px; color:#4527a0;">💻 GrPA/GA: <b>${stats.grpa}/${stats.totalGrpa}</b></div>
+                <div style="font-size:10px; color:#2e7d32;">🏆 Quizzes: <b>${stats.quizzes}/${stats.totalQuizzes}</b></div>
             </div>
         `;
     };
@@ -1598,7 +1870,7 @@
         if (!document.getElementById('iitm-header-search')) injectHeaderSearch();
         if (!document.getElementById('iitm-spotlight')) injectSpotlight();
         if (!document.getElementById('iitm-focus-bar-container')) injectFocusBar();
-        if (!document.getElementById('iitm-progress-card')) injectProgressTracker();
+        injectProgressTracker(); // Always run to capture dynamic Angular DOM/Icon updates
         injectScoreCheckerTools(); // Has its own check
         autoCloseSidebar();
     }, 2500);
