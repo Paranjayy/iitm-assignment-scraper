@@ -1119,6 +1119,15 @@
         }
 
         const footerActions = document.getElementById('footer-actions-btn');
+        const openBtn = document.getElementById('footer-open-btn');
+        if (openBtn) {
+            openBtn.onmousedown = (e) => {
+                e.preventDefault(); e.stopPropagation();
+                if (selectedIndex >= 0 && currentMatches[selectedIndex]) {
+                    triggerSelection(currentMatches[selectedIndex], null);
+                }
+            };
+        }
         if (footerActions) {
             footerActions.onclick = (e) => {
                 e.preventDefault();
@@ -1521,7 +1530,7 @@
             } else if (e.key === 'Enter' && selectedIndex >= 0) {
                 e.preventDefault();
                 const itemData = currentMatches[selectedIndex];
-                if (itemData) triggerSelection(itemData, e);
+                if (itemData) triggerSelection(itemData, null);
             } else if (e.key === 'j' && e.metaKey) {
                 e.preventDefault();
                 e.stopPropagation();
