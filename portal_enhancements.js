@@ -452,7 +452,7 @@
                 const isSpinnerActive = document.querySelector('.spinner-overlay, app-spinner') !== null;
                 
                 // 3. POSITIVE VERIFICATION: Is final content actively mounted?
-                const mainContentWrapper = document.querySelector('.modules__content-main, .right-panel, .video-container');
+                const mainContentWrapper = document.querySelector('.modules__content-main, .layout-container, app-programming-layout, .video-container');
                 const isContentMounted = mainContentWrapper && mainContentWrapper.children.length > 0;
                 
                 const isGetItemsReady = typeof window.__iitm_get_items === 'function';
@@ -463,6 +463,10 @@
                                       isGetItemsReady && 
                                       !isGhostLoaderActive && 
                                       !isSpinnerActive;
+                                      
+                if (waitAttempts % 5 === 0) {
+                    console.log(`[IITM Scraper] Polling State -> Sidebar: ${isSidebarReady}, Content: ${isContentMounted}, Ghosts: ${isGhostLoaderActive}, Spinner: ${isSpinnerActive}, hook: ${isGetItemsReady}`);
+                }
                 
                 if (isFullyLoaded || waitAttempts > 40) { // wait up to 20 seconds
                     clearInterval(delayClose);
