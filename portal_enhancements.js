@@ -443,13 +443,23 @@
             let waitAttempts = 0;
             const delayClose = setInterval(() => {
                 const subitems = document.querySelectorAll('.units__subitems');
-                const isGhostLoaderActive = document.querySelector('.ghost-loader') !== null;
-                const isSpinnerActive = document.querySelector('.spinner-overlay') !== null;
+                
+                // 1. Are sidebar units populated?
+                const isSidebarReady = subitems.length > 20 && subitems[0].innerText.trim().length > 5;
+                
+                // 2. Are skeleton/spinners dead?
+                const isGhostLoaderActive = document.querySelector('.ghost-loader, .skeleton') !== null;
+                const isSpinnerActive = document.querySelector('.spinner-overlay, app-spinner') !== null;
+                
+                // 3. POSITIVE VERIFICATION: Is final content actively mounted?
+                const mainContentWrapper = document.querySelector('.modules__content-main, .right-panel, .video-container');
+                const isContentMounted = mainContentWrapper && mainContentWrapper.children.length > 0;
+                
                 const isGetItemsReady = typeof window.__iitm_get_items === 'function';
                 
-                // Ensure there are multiple elements AND there's actual text hydrated inside them AND main page is fully loaded AND cache functions are hydrated
-                const isFullyLoaded = subitems.length > 20 && 
-                                      subitems[0].innerText.trim().length > 5 && 
+                // Strict Mathematical Gate
+                const isFullyLoaded = isSidebarReady && 
+                                      isContentMounted && 
                                       isGetItemsReady && 
                                       !isGhostLoaderActive && 
                                       !isSpinnerActive;
