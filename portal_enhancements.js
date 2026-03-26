@@ -432,11 +432,12 @@
         });
     }
 
+    let lastUrlProcessed = '';
     const autoCloseSidebar = () => {
-        if (sidebarClosedThisSession || autoCloseAttempts > 20 || isSpotlightOpen) return;
+        if (isSpotlightOpen) return;
 
-        if (location.href.includes('/courses/')) {
-            sidebarClosedThisSession = true;
+        if (location.href.includes('/courses/') && location.href !== lastUrlProcessed) {
+            lastUrlProcessed = location.href;
 
             // Wait for both the initial spinner AND the skeleton loading frames to resolve completely
             let waitAttempts = 0;
@@ -472,7 +473,6 @@
                 waitAttempts++;
             }, 500);
         }
-        autoCloseAttempts++;
     };
 
     const setupSpotlightListeners = () => {
@@ -1180,8 +1180,36 @@
                 // But if they press ENTER (no event), we navigate.
                 if (!event) {
                     spotlight.style.display = 'none';
-                    if (item.el) (item.el.closest('button') || item.el).click();
-                    else if (item.url) window.location.href = item.url;
+                    if (item.url) {
+                        window.location.href = item.url;
+                        return;
+                    }
+                    if (!item.el) return;
+
+                    // If the element is still physically in the DOM tree, just click it natively!
+                    if (document.body.contains(item.el)) {
+                        (item.el.closest('button') || item.el).click();
+                        if (!item.isSub) setTimeout(() => item.el.querySelector('.mat-expansion-indicator')?.click(), 50);
+                    } else {
+                        // Fallback: If Angular erased the sidebar, we must re-open it to orchestrate the route change natively!
+                        const leftToggle = document.querySelector('.hide-outline-btn');
+                        if (leftToggle) leftToggle.click();
+
+                        setTimeout(() => {
+                            const headers = Array.from(document.querySelectorAll('.units__items'));
+                            const targetHeader = headers.find(h => h.innerText.includes(item.breadcrumb));
+                            if (targetHeader) {
+                                if (!targetHeader.classList.contains('mat-expanded') && !targetHeader.querySelector('.mat-expansion-panel-content')) {
+                                    targetHeader.click();
+                                }
+                                setTimeout(() => {
+                                    const subitems = Array.from(targetHeader.querySelectorAll('.units__subitems'));
+                                    const exactNode = subitems.find(s => s.innerText.includes(item.text));
+                                    if (exactNode) (exactNode.closest('button') || exactNode).click();
+                                }, 300);
+                            }
+                        }, 500); // Give Angular 500ms to recreate the DOM tree
+                    }
                 }
             }
         };
