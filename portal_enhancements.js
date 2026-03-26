@@ -1405,12 +1405,12 @@
             
             // ⚡ ACADEMIC COMMANDS (FIRST-CLASS RESULTS)
             [
-                { text: '🎓 Exam Simulator (Path to S)', actionId: 'examSim', typeLabel: 'COMMAND', color: '#db2777', description: 'Simulate required quiz/final scores' },
-                { text: '🏠 Go to My Dashboard', actionId: 'navDash', typeLabel: 'NAV', color: '#1565c0', description: 'Jump to current course outline' },
-                { text: '📊 Open Score Checker', actionId: 'navScore', typeLabel: 'NAV', color: '#2e7d32', description: 'Jump to detailed quiz grades' },
-                { text: '✨ Feature Tour (What\'s New)', actionId: 'showTour', typeLabel: 'COMMAND', color: '#7b1fa2', description: 'Show all academic suite features' },
-                { text: '📥 Bulk Export All (Active)', actionId: 'bulkExport', typeLabel: 'COMMAND', color: '#ef6c00', description: 'Export all selected course units' },
-                { text: '🔓 Unlock Editor/Copy', actionId: 'unlockPage', typeLabel: 'COMMAND', color: '#455a64', description: 'Force enable text selection/copy' }
+                { text: '🎓 Exam Simulator (Path to S)', group: 'SYSTEM COMMANDS', actionId: 'examSim', typeLabel: 'COMMAND', color: '#db2777', description: 'Simulate required quiz/final scores' },
+                { text: '🏠 Go to My Dashboard', group: 'SYSTEM COMMANDS', actionId: 'navDash', typeLabel: 'NAV', color: '#1565c0', description: 'Jump to current course outline' },
+                { text: '📊 Open Score Checker', group: 'SYSTEM COMMANDS', actionId: 'navScore', typeLabel: 'NAV', color: '#2e7d32', description: 'Jump to detailed quiz grades' },
+                { text: '✨ Feature Tour (What\'s New)', group: 'SYSTEM COMMANDS', actionId: 'showTour', typeLabel: 'COMMAND', color: '#7b1fa2', description: 'Show all academic suite features' },
+                { text: '📥 Bulk Export All (Active)', group: 'SYSTEM COMMANDS', actionId: 'bulkExport', typeLabel: 'COMMAND', color: '#ef6c00', description: 'Export all selected course units' },
+                { text: '🔓 Unlock Editor/Copy', group: 'SYSTEM COMMANDS', actionId: 'unlockPage', typeLabel: 'COMMAND', color: '#455a64', description: 'Force enable text selection/copy' }
             ].forEach(cmd => allItems.push({ ...cmd, breadcrumb: 'Academic Engine', isSub: true }));
 
             headers.forEach(weekEl => {
