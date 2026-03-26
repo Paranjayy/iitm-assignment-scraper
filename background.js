@@ -95,10 +95,6 @@ function unlockPage(tabId) {
                         ta.removeAttribute('readonly');
                         ta.readOnly = false;
                         ta.disabled = false;
-                        // NUKING site-side blockers ONLY during bubbling so AceEditor still gets them
-                        ta.addEventListener('copy', e => e.stopPropagation(), false);
-                        ta.addEventListener('paste', e => e.stopPropagation(), false);
-                        ta.addEventListener('cut', e => e.stopPropagation(), false);
                         ta.style.pointerEvents = 'auto';
                         ta.style.opacity = '1';
                     });
@@ -106,6 +102,29 @@ function unlockPage(tabId) {
                     el.classList.remove('ace_readonly');
                     el.classList.remove('readonly');
                 });
+                
+                // Combat Anti-Cheat Keydown Monitors
+                const shortcuts = ['v', 'c', 'x', 'z', 'y', 'a'];
+                window.addEventListener('keydown', async (e) => {
+                    const isMeta = e.ctrlKey || e.metaKey;
+                    if (isMeta && shortcuts.includes(e.key.toLowerCase())) {
+                        
+                        // Explicitly handle Native Copy (Cmd+C / Ctrl+C)
+                        if (e.key.toLowerCase() === 'c') {
+                            const activeEl = document.activeElement;
+                            if (activeEl && activeEl.classList.contains('ace_text-input')) {
+                                try {
+                                    // Ace dynamically injects the selected text into the value of this invisible textarea
+                                    await navigator.clipboard.writeText(activeEl.value);
+                                } catch(err) {
+                                    document.execCommand('copy');
+                                }
+                            }
+                        }
+                        
+                        e.stopPropagation();
+                    }
+                }, true);
 
                 // Obliterate Site-Wide Right-Click Blockers
                 document.oncontextmenu = null;
