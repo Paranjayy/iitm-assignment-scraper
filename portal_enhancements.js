@@ -1409,6 +1409,8 @@
             // ⚡ ACADEMIC COMMANDS (FIRST-CLASS RESULTS)
             [
                 { text: '🎓 Exam Simulator (Path to S)', group: 'SYSTEM COMMANDS', actionId: 'examSim', typeLabel: 'COMMAND', color: '#db2777', description: 'Simulate required quiz/final scores' },
+                { text: '📈 Global GPA Projector', group: 'SYSTEM COMMANDS', actionId: 'globalGPA', typeLabel: 'COMMAND', color: '#64FFDA', description: 'Estimate Term CGPA across all courses' },
+                { text: '🔥 Academic Heatmap', group: 'SYSTEM COMMANDS', actionId: 'academicHeatmap', typeLabel: 'COMMAND', color: '#FFC107', description: 'Visualize 12-week academic progress' },
                 { text: '🏠 Go to My Dashboard', group: 'SYSTEM COMMANDS', actionId: 'navDash', typeLabel: 'NAV', color: '#1565c0', description: 'Jump to current course outline' },
                 { text: '📊 Open Score Checker', group: 'SYSTEM COMMANDS', actionId: 'navScore', typeLabel: 'NAV', color: '#2e7d32', description: 'Jump to detailed quiz grades' },
                 { text: '✨ Feature Tour (What\'s New)', group: 'SYSTEM COMMANDS', actionId: 'showTour', typeLabel: 'COMMAND', color: '#7b1fa2', description: 'Show all academic suite features' },
@@ -1632,6 +1634,8 @@
                     if (selector) selector.remove();
                     showExamSimulator();
                 }, global: true },
+                { name: 'Global GPA Projector', key: 'G', run: () => showGlobalProjection(), global: true },
+                { name: 'Academic Heatmap', key: 'M', run: () => showAcademicHeatmap(), global: true },
                 { name: 'Feature Tour (What\'s New)', key: '?', run: () => showFeatureTour(), global: true },
                 { name: 'Reload Extension', key: 'R', run: () => {
                     spotlight.style.display = 'none';
@@ -2128,9 +2132,9 @@
 
     function showExamSimulator() {
         const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
-        chrome.storage.local.get(['iitm_quiz_cache', 'iitm_scores'], (storageData) => {
+        chrome.storage.local.get(['iitm_quiz_cache', `iitm_scores_${courseName}`], (storageData) => {
             const cache = (storageData.iitm_quiz_cache || {})[courseName] || {};
-            const savedScores = (storageData.iitm_scores || {})[courseName] || { assignments: [], quizzes: [] };
+            const savedScores = (storageData[`iitm_scores_${courseName}`] || { assignments: [], quizzes: [] });
             
             const modal = document.createElement('div');
             modal.id = 'iitm-exam-simulator';
@@ -2353,8 +2357,14 @@
 
     function syncCurrentPageScores(silent = true) {
         const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
-        chrome.storage.local.get('iitm_scores', (data) => {
-            const current = (data.iitm_scores || {})[courseName] || { assignments: [], quizzes: [] };
+        if (!courseName) {
+            if (!silent) showToast('Could not determine course name for score sync.');
+            return;
+        }
+
+        chrome.storage.local.get(null, (data) => {
+            const storageKey = `iitm_scores_${courseName}`;
+            const current = (data[storageKey] || { assignments: [], quizzes: [] });
             const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p, .completion-status, .graded-prog-completion'));
             
             let updated = false;
@@ -2374,9 +2384,9 @@
             });
 
             if (updated) {
-                const all = (data.iitm_scores || {});
-                all[courseName] = current;
-                chrome.storage.local.set({ iitm_scores: all }, () => {
+                const all = data;
+                all[storageKey] = current;
+                chrome.storage.local.set(all, () => {
                     if (!silent) showToast('Scores Synched');
                 });
             } else if (!silent) {
@@ -2443,6 +2453,134 @@
             }
         };
         document.addEventListener('keydown', handleEsc);
+    }
+
+    function showGlobalProjection() {
+        chrome.storage.local.get(null, (data) => {
+            const courseKeys = Object.keys(data).filter(k => k.startsWith('iitm_scores_'));
+            if (courseKeys.length === 0) {
+                alert('No course data found! Visit your Course Pages to sync scores first.');
+                return;
+            }
+
+            let totalPoints = 0;
+            let coursesCount = 0;
+            let detailHtml = '';
+
+            courseKeys.forEach(key => {
+                const courseData = data[key];
+                const scores = courseData.assignments || []; // Use assignments for GPA calculation
+                const courseCode = key.replace('iitm_scores_', '');
+                
+                // Simple GPA Logic: Avg of all assignments
+                const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+                
+                let gp = 0;
+                let grade = 'U';
+                if (avg >= 90) { gp = 10; grade = 'S'; }
+                else if (avg >= 80) { gp = 9; grade = 'A'; }
+                else if (avg >= 70) { gp = 8; grade = 'B'; }
+                else if (avg >= 60) { gp = 7; grade = 'C'; }
+                else if (avg >= 50) { gp = 6; grade = 'D'; }
+                else if (avg >= 40) { gp = 4; grade = 'E'; }
+
+                totalPoints += gp;
+                coursesCount++;
+                
+                detailHtml += `
+                    <div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #333;">
+                        <span style="color:#eee; font-weight:bold;">${courseCode}</span>
+                        <span style="color:#aaa;">Avg: ${avg.toFixed(1)}</span>
+                        <span style="color:#64FFDA; font-weight:bold;">Grade: ${grade} (${gp})</span>
+                    </div>
+                `;
+            });
+
+            const cgpa = (totalPoints / coursesCount).toFixed(2);
+            const overlay = document.createElement('div');
+            overlay.id = 'iitm-gpa-modal';
+            overlay.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(10px);";
+            overlay.innerHTML = `
+                <div style="background:#111; width:500px; padding:30px; border-radius:15px; border:1px solid #333; color:#fff; font-family:sans-serif; box-shadow:0 10px 50px rgba(0,0,0,0.5);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h2 style="margin:0; font-size:24px; color:#64FFDA;">Global GPA Projector</h2>
+                        <button id="close-gpa" style="background:none; border:none; color:#aaa; font-size:24px; cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="text-align:center; margin-bottom:30px; padding:20px; background:#1a1a1a; border-radius:10px;">
+                        <div style="font-size:14px; color:#aaa; text-transform:uppercase; letter-spacing:1px;">Estimated Term CGPA</div>
+                        <div style="font-size:48px; font-weight:bold; color:#64FFDA; margin:10px 0;">${cgpa}</div>
+                        <div style="font-size:16px; color:#888;">Based on ${coursesCount} active courses</div>
+                    </div>
+                    <div style="max-height:200px; overflow-y:auto; margin-bottom:20px; border-radius:10px; background:#080808;">
+                        ${detailHtml}
+                    </div>
+                    <button id="close-gpa-btn" style="width:100%; padding:15px; border-radius:8px; border:none; background:#64FFDA; color:#000; font-weight:bold; cursor:pointer;">Great, Thanks!</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            const close = () => overlay.remove();
+            document.getElementById('close-gpa').onclick = close;
+            document.getElementById('close-gpa-btn').onclick = close;
+        });
+    }
+
+    function showAcademicHeatmap() {
+        chrome.storage.local.get(null, (data) => {
+            const courseKeys = Object.keys(data).filter(k => k.startsWith('iitm_scores_'));
+            
+            // Generate Grid
+            let gridHtml = '';
+            const labels = ['Assignments', 'Quizzes', 'Projects', 'Videos']; // Projects and Videos are placeholders for now
+            
+            for (let r = 0; r < labels.length; r++) {
+                gridHtml += `<div style="display:flex; align-items:center; margin-bottom:4px;">`;
+                gridHtml += `<div style="width:80px; font-size:10px; color:#666; text-transform:uppercase;">${labels[r]}</div>`;
+                for (let w = 1; w <= 12; w++) {
+                    let completed = false;
+                    courseKeys.forEach(k => {
+                        const c = data[k];
+                        if (r === 0 && (c.assignments || []).length >= w) completed = true; // Assignments
+                        if (r === 1 && (c.quizzes || []).length >= w) completed = true;    // Quizzes
+                        // Add logic for Projects/Videos if data becomes available
+                    });
+                    
+                    const color = completed ? '#64FFDA' : '#222';
+                    const title = completed ? `Week ${w} Completed` : `Week ${w} Pending`;
+                    gridHtml += `<div title="${title}" style="width:20px; height:20px; margin:2px; background:${color}; border-radius:3px; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'"></div>`;
+                }
+                gridHtml += `</div>`;
+            }
+
+            const overlay = document.createElement('div');
+            overlay.id = 'iitm-heatmap-modal';
+            overlay.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10001; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(8px);";
+            overlay.innerHTML = `
+                <div style="background:#111; padding:30px; border-radius:20px; border:1px solid #333; color:#fff; font-family:sans-serif;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <div>
+                            <h2 style="margin:0; font-size:22px;">Academic Progress Heatmap</h2>
+                            <div style="font-size:12px; color:#888;">12-Week Course Milestone Tracker</div>
+                        </div>
+                        <button id="close-heat" style="background:none; border:none; color:#aaa; font-size:24px; cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="background:#080808; padding:20px; border-radius:10px; margin-bottom:20px;">
+                        <div style="display:flex; margin-left:80px; margin-bottom:10px;">
+                            ${Array.from({length:12}, (_,i)=>`<div style="width:24px; text-align:center; font-size:10px; color:#555;">W${i+1}</div>`).join('')}
+                        </div>
+                        ${gridHtml}
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-size:11px; color:#888;">
+                        <span>Progress based on all courses synced to date</span>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div style="display:flex; align-items:center; gap:5px;"><div style="width:10px; height:10px; background:#222; border-radius:2px;"></div> Pending</div>
+                            <div style="display:flex; align-items:center; gap:5px;"><div style="width:10px; height:10px; background:#64FFDA; border-radius:2px;"></div> Done</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            document.getElementById('close-heat').onclick = () => overlay.remove();
+        });
     }
 
     // Auto-Loader loop (Reduced frequency for site speed)
