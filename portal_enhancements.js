@@ -1202,6 +1202,12 @@
                 } else if (item.actionId === 'examSim') {
                     spotlight.style.display = 'none';
                     showExamSimulator();
+                } else if (item.actionId === 'globalGPA') {
+                    spotlight.style.display = 'none';
+                    showGlobalProjection();
+                } else if (item.actionId === 'academicHeatmap') {
+                    spotlight.style.display = 'none';
+                    showAcademicHeatmap();
                 } else if (item.actionId === 'navDash') {
                     window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/current_courses';
                 } else if (item.actionId === 'navScore') {
@@ -1842,6 +1848,23 @@
                     container.insertBefore(tools, container.firstChild);
                     document.getElementById('iitm-export-all-btn').onclick = () => chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'consolidateAll' });
                     document.getElementById('iitm-export-this-btn').onclick = () => chrome.runtime.sendMessage({ action: 'triggerScraper' });
+                    
+                    // AUTO-SYNC ALL COURSES FROM SCORE CHECKER TABLE
+                    const rows = document.querySelectorAll('table tr');
+                    rows.forEach(row => {
+                        const courseCode = row.querySelector('td:nth-child(3)')?.innerText.trim();
+                        const totalScore = parseFloat(row.querySelector('td:nth-child(4)')?.innerText.trim());
+                        if (courseCode && !isNaN(totalScore)) {
+                            const key = `iitm_scores_${courseCode}`;
+                            chrome.storage.local.get(key, (data) => {
+                                const current = data[key] || { assignments: [], quizzes: [], total: 0 };
+                                if (current.total !== totalScore) {
+                                    current.total = totalScore;
+                                    chrome.storage.local.set({ [key]: current });
+                                }
+                            });
+                        }
+                    });
                 } else if (isDetail) {
                     tools.innerHTML = `
                         ${closeBtn}
@@ -2355,42 +2378,58 @@
         });
     }
 
-    function syncCurrentPageScores(silent = true) {
-        const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
-        if (!courseName) {
-            if (!silent) showToast('Could not determine course name for score sync.');
+      function syncCurrentPageScores() {
+        // Source 1: Dashboard Cards (Multiple Courses)
+        if (window.location.href.includes('student_dashboard/current_courses')) {
+            const courseCards = document.querySelectorAll('.card, .course-card, mat-card');
+            courseCards.forEach(card => {
+                const titleEl = card.querySelector('h1, h2, h3, h4, .course-title, .course-name');
+                const courseName = titleEl?.innerText.trim().substring(0, 30);
+                if (!courseName) return;
+
+                const scoreItems = Array.from(card.querySelectorAll('p, span, li')).filter(el => {
+                    const txt = el.innerText;
+                    return (txt.includes('Assignment') || txt.includes('Quiz')) && txt.includes('-');
+                });
+
+                if (scoreItems.length > 0) {
+                    processScoreElements(courseName, scoreItems);
+                }
+            });
             return;
         }
 
+        // Source 2: Active Course Page (Single Course)
+        const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
+        if (!courseName) return;
+        const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p, .completion-status, .graded-prog-completion'));
+        processScoreElements(courseName, rawElements);
+    }
+
+    function processScoreElements(courseName, elements) {
+        const storageKey = `iitm_scores_${courseName}`;
         chrome.storage.local.get(null, (data) => {
-            const storageKey = `iitm_scores_${courseName}`;
             const current = (data[storageKey] || { assignments: [], quizzes: [] });
-            const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p, .completion-status, .graded-prog-completion'));
-            
             let updated = false;
-            rawElements.forEach(el => {
-                const text = el.innerText;
-                const scoreMatch = text.match(/(?:Score:\s*|Graded:\s*|[\w\s]+-\s*)(\d+\.?\d*)\s*(?:\/\s*(\d+\.?\d*))?/i);
-                if (scoreMatch) {
-                    let val = parseFloat(scoreMatch[1]);
-                    const total = scoreMatch[2] ? parseFloat(scoreMatch[2]) : null;
-                    if (total) val = (val / total) * 100;
-                    if (!current.assignments.includes(val) && !current.quizzes.includes(val)) {
-                        if (text.toLowerCase().includes('quiz')) current.quizzes.push(val);
-                        else current.assignments.push(val);
+
+            elements.forEach(el => {
+                const text = el.innerText.trim();
+                const scoreMatch = text.match(/(\d+(?:\.\d+)?)\s*\/\s*100/) || text.match(/-\s*(\d+(?:\.\d+)?)/);
+                const score = scoreMatch ? parseFloat(scoreMatch[1]) : null;
+
+                if (score !== null && !isNaN(score)) {
+                    if (text.toLowerCase().includes('assignment') && !current.assignments.includes(score)) {
+                        current.assignments.push(score);
+                        updated = true;
+                    } else if (text.toLowerCase().includes('quiz') && !current.quizzes.includes(score)) {
+                        current.quizzes.push(score);
                         updated = true;
                     }
                 }
             });
 
             if (updated) {
-                const all = data;
-                all[storageKey] = current;
-                chrome.storage.local.set(all, () => {
-                    if (!silent) showToast('Scores Synched');
-                });
-            } else if (!silent) {
-                showToast('No new scores found on page');
+                chrome.storage.local.set({ [storageKey]: current });
             }
         });
     }
@@ -2469,11 +2508,12 @@
 
             courseKeys.forEach(key => {
                 const courseData = data[key];
-                const scores = courseData.assignments || []; // Use assignments for GPA calculation
+                const scores = courseData.assignments || [];
                 const courseCode = key.replace('iitm_scores_', '');
                 
-                // Simple GPA Logic: Avg of all assignments
-                const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+                // Logic: Use Score Checker Total if available (more accurate), else average assignments
+                const avg = courseData.total !== undefined ? courseData.total : (scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0);
+                const sourceLabel = courseData.total !== undefined ? 'Official' : 'Estimated';
                 
                 let gp = 0;
                 let grade = 'U';
@@ -2490,7 +2530,7 @@
                 detailHtml += `
                     <div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #333;">
                         <span style="color:#eee; font-weight:bold;">${courseCode}</span>
-                        <span style="color:#aaa;">Avg: ${avg.toFixed(1)}</span>
+                        <span style="color:#aaa;">${sourceLabel}: ${avg.toFixed(1)}</span>
                         <span style="color:#64FFDA; font-weight:bold;">Grade: ${grade} (${gp})</span>
                     </div>
                 `;
@@ -2596,7 +2636,7 @@
         autoCloseSidebar();
         
         // AUTO-SYNC SCORES
-        if (window.location.href.includes('course')) {
+        if (window.location.href.includes('course') || window.location.href.includes('dashboard')) {
              syncCurrentPageScores();
         }
     }, 2500);
