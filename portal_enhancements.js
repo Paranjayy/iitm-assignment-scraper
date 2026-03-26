@@ -438,22 +438,31 @@
         if (location.href.includes('/courses/')) {
             sidebarClosedThisSession = true;
 
-            // Wait an absolute fixed 4 seconds to guarantee Angular downloads/hydrates all the sidebar text strings before caching
-            setTimeout(() => {
-                if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
+            // Wait for both the initial spinner AND the skeleton loading frames to resolve completely
+            let waitAttempts = 0;
+            const delayClose = setInterval(() => {
+                const subitems = document.querySelectorAll('.units__subitems');
+                // Ensure there are multiple elements AND there's actual text hydrated inside them
+                const isFullyLoaded = subitems.length > 20 && subitems[0].innerText.trim().length > 5;
                 
-                // Desktop Sidebar
-                const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
-                const isCollapsed = document.querySelector('.hide-outline-btn')?.innerHTML?.includes('rotate(180deg)');
-                if (leftToggle && !isCollapsed && !isSpotlightOpen) leftToggle.click();
-                
-                // Mobile Sidebar
-                const sidenav = document.querySelector('mat-sidenav');
-                if (sidenav && (sidenav.classList.contains('mat-drawer-opened') || sidenav.getAttribute('opened') === 'true' || sidenav.offsetWidth > 100)) {
-                    const mobileToggle = document.querySelector('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
-                    if (mobileToggle && !isSpotlightOpen) mobileToggle.click();
+                if (isFullyLoaded || waitAttempts > 25) { // up to 12.5 seconds max
+                    clearInterval(delayClose);
+                    if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
+                    
+                    // Desktop Sidebar
+                    const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
+                    const isCollapsed = document.querySelector('.hide-outline-btn')?.innerHTML?.includes('rotate(180deg)');
+                    if (leftToggle && !isCollapsed && !isSpotlightOpen) leftToggle.click();
+                    
+                    // Mobile Sidebar
+                    const sidenav = document.querySelector('mat-sidenav');
+                    if (sidenav && (sidenav.classList.contains('mat-drawer-opened') || sidenav.getAttribute('opened') === 'true' || sidenav.offsetWidth > 100)) {
+                        const mobileToggle = document.querySelector('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
+                        if (mobileToggle && !isSpotlightOpen) mobileToggle.click();
+                    }
                 }
-            }, 4000);
+                waitAttempts++;
+            }, 500);
         }
         autoCloseAttempts++;
     };

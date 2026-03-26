@@ -103,32 +103,29 @@ function unlockPage(tabId) {
                     el.classList.remove('readonly');
                 });
                 
-                // True Native Cut/Copy/Paste via internal AceEditor payload mapping
-                window.addEventListener('copy', (e) => {
-                    const activeEl = document.activeElement;
-                    if (activeEl && activeEl.classList.contains('ace_text-input')) {
-                        e.clipboardData.setData('text/plain', activeEl.value);
-                        e.preventDefault(); e.stopPropagation();
-                    }
-                }, true);
-                
-                window.addEventListener('cut', (e) => {
-                    const activeEl = document.activeElement;
-                    if (activeEl && activeEl.classList.contains('ace_text-input')) {
-                        e.clipboardData.setData('text/plain', activeEl.value);
-                        activeEl.value = '';
-                        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
-                        e.preventDefault(); e.stopPropagation();
-                    }
-                }, true);
-                
-                window.addEventListener('paste', (e) => {
-                    const activeEl = document.activeElement;
-                    if (activeEl && activeEl.classList.contains('ace_text-input')) {
-                        const text = e.clipboardData.getData('text/plain');
-                        activeEl.value = activeEl.value.substring(0, activeEl.selectionStart) + text + activeEl.value.substring(activeEl.selectionEnd);
-                        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
-                        e.preventDefault(); e.stopPropagation();
+                // True Native Cut/Copy/Paste mapped directly via AceEditor memory APIs
+                window.addEventListener('keydown', (e) => {
+                    const isMeta = e.ctrlKey || e.metaKey;
+                    if (!isMeta) return;
+                    
+                    const key = e.key.toLowerCase();
+                    if (key === 'c' || key === 'x') {
+                        document.querySelectorAll('.ace_editor').forEach(el => {
+                            try {
+                                const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
+                                if (editor && editor.isFocused()) {
+                                    const text = editor.getCopyText();
+                                    if (text) navigator.clipboard.writeText(text).catch(()=>{});
+                                    if (key === 'x') editor.execCommand('backspace'); // Native cut removal
+                                    e.preventDefault(); e.stopPropagation();
+                                }
+                            } catch(err) {}
+                        });
+                    } else if (key === 'v') {
+                        // Suppress the V keystroke from Angular anti-cheat monitors
+                        // Chrome will then inherently follow up with a native 'paste' event cascading down
+                        // directly into the AceEditor where it is natively absorbed!
+                        e.stopPropagation();
                     }
                 }, true);
 
