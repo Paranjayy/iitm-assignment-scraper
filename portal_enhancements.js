@@ -215,8 +215,35 @@
             etaText.innerText = `ETA: ~${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
             
             console.log(`🚀 [${i+1}/${count}] Beginning ${isProgramming ? 'GrPA' : 'Standard'} Capture: ${title}`);
-            item.click(); 
             
+            // ROBUST CLICKER: Force Sidebar Open and Click Native Node
+            window.__iitm_is_bulk_scraping = true; // Shield against autoCloseSidebar
+            const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu, .mobile-menu button, button[aria-label="Menu"]');
+            if (leftToggle) {
+                const isCollapsed = leftToggle.innerHTML?.includes('rotate(180deg)') || document.querySelector('mat-sidenav')?.getAttribute('opened') !== 'true';
+                if (isCollapsed) leftToggle.click();
+            }
+            
+            await new Promise(r => setTimeout(r, 400)); // Let angular physically expand sidebar
+            
+            const isVisible = document.body.contains(item) && item.offsetWidth > 0;
+            if (isVisible) {
+                (item.closest('button') || item).click();
+                if (!itemData.isSub) setTimeout(() => item.querySelector('.mat-expansion-indicator')?.click(), 50);
+            } else {
+                // Rescue block: Re-find fresh DOM node if angular destroyed it in memory
+                const headers = Array.from(document.querySelectorAll('.units__items'));
+                const targetHeader = headers.find(h => h.innerText.includes(breadcrumb));
+                if (targetHeader) {
+                    if (!targetHeader.classList.contains('mat-expanded') && !targetHeader.querySelector('.mat-expansion-panel-content')) {
+                        targetHeader.click();
+                    }
+                    await new Promise(r => setTimeout(r, 300));
+                    const freshSubitems = Array.from(targetHeader.querySelectorAll('.units__subitems'));
+                    const exactNode = freshSubitems.find(s => s.innerText.includes(title));
+                    if (exactNode) (exactNode.closest('button') || exactNode).click();
+                }
+            }
             // Wait for sidebar title to match selection (Verifies navigation)
             let navigated = false;
             for (let navW = 0; navW < 30; navW++) {
@@ -360,6 +387,7 @@
             overlay.remove();
         }
         selectedItems.clear();
+        window.__iitm_is_bulk_scraping = false;
     };
 
     let isDarkMode = localStorage.getItem('iitm-dark-mode-enabled') === 'true';
@@ -1180,7 +1208,7 @@
                 
                 lastSelectedIndex = currentMatches.indexOf(item);
                 localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
-                renderResults(items, true);
+                renderResults(window.cachedItems || [], true);
 
                 // Option: If NOT clicking a checkbox/meta area, just navigate? 
                 // User's request suggests they WANT selection for bulk, so we toggle.
