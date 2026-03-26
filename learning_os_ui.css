@@ -1,0 +1,168 @@
+
+/* LEARNING OS — ACADEMIC ENGINE THEME */
+/* Designed for the IITM Portal to match the Learning OSS Look & Feel */
+:root {
+  --ink-00: #000000;
+  --ink-01: #0a0a0a;
+  --ink-02: #141414;
+  --border-0: rgba(255, 255, 255, 0.04);
+  --border-1: rgba(255, 255, 255, 0.08);
+  --teal: oklch(0.72 0.18 152);
+  --amber: oklch(0.72 0.18 80);
+  --red: oklch(0.65 0.22 25);
+  --text-00: #ffffff;
+  --text-01: #e0e0e0;
+  --text-02: #a0a0a0;
+  --text-03: #606060;
+  --font-display: 'Outfit', sans-serif;
+  --font-label: 'Inter', sans-serif;
+}
+
+/* @import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;900&family=Inter:wght@400;600;800&display=swap');
+
+/* GLOBAL OVERRIDES */
+body {
+  font-family: var(--font-label) !important;
+  background-color: var(--ink-00) !important;
+  color: var(--text-01) !important;
+}
+
+/* SLEEK DASHBOARD OVERLAY */
+.learning-os-dashboard {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: var(--ink-00);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+  overflow: hidden;
+}
+
+.learning-os-header {
+  height: 60px;
+  border-bottom: 1px solid var(--border-0);
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.learning-os-logo {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.2rem;
+  letter-spacing: -0.04em;
+  color: var(--text-00);
+}
+
+.learning-os-logo span {
+  color: var(--teal);
+}
+
+.learning-os-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  overflow: hidden;
+}
+
+.learning-os-sidebar {
+  border-right: 1px solid var(--border-0);
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.learning-os-nav-item {
+  color: var(--text-02);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.learning-os-nav-item:hover, .learning-os-nav-item.active {
+  color: var(--text-00);
+  transform: translateX(5px);
+}
+
+.learning-os-content {
+  padding: 60px 80px;
+  overflow-y: auto;
+}
+
+.academic-title {
+  font-family: var(--font-display);
+  font-size: 4rem;
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  margin-bottom: 40px;
+}
+
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1px;
+  background: var(--border-0);
+  border: 1px solid var(--border-0);
+}
+
+.course-card {
+  background: var(--ink-00);
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.course-card:hover {
+  background: #ffffff02;
+}
+
+.course-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.course-card-accent {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--teal);
+}
+
+.course-card-name {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-01);
+}
+
+.course-card-stats {
+  margin-top: auto;
+}
+
+.course-card-score {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--teal);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* HIDE ORIGINAL PORTAL ELEMENTS WHEN DASHBOARD ACTIVE */
+.portal-hidden {
+  display: none !important;
+}

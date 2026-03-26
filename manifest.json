@@ -14,6 +14,7 @@
   ],
   "host_permissions": [
     "https://seek.onlinedegree.iitm.ac.in/*",
+    "https://ds.study.iitm.ac.in/*",
     "*://score-checker-379619009600.asia-south1.run.app/*"
   ],
   "background": {
@@ -23,6 +24,7 @@
     {
       "matches": [
         "*://seek.onlinedegree.iitm.ac.in/*",
+        "*://ds.study.iitm.ac.in/*",
         "*://score-checker-379619009600.asia-south1.run.app/*"
       ],
       "js": ["turndown.js", "jszip.min.js", "content.js", "portal_enhancements.js"],

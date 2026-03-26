@@ -1,4 +1,6 @@
 (function() {
+    'use strict';
+
     console.log('IITM Explorer: Enhancing Productivity...');
 
     const body = document.body;
@@ -1134,10 +1136,13 @@
         const footerActions = document.getElementById('footer-actions-btn');
         const openBtn = document.getElementById('footer-open-btn');
         if (openBtn) {
-            openBtn.onmousedown = (e) => {
+            openBtn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
-                if (selectedIndex >= 0 && currentMatches[selectedIndex]) {
-                    triggerSelection(currentMatches[selectedIndex], null);
+                const activeItem = currentMatches[selectedIndex];
+                if (activeItem) {
+                    triggerSelection(activeItem, null);
+                } else if (currentMatches.length > 0) {
+                    triggerSelection(currentMatches[0], null);
                 }
             };
         }
@@ -1194,21 +1199,37 @@
                 } else if (item.actionId === 'reloadExtension') {
                     spotlight.style.display = 'none';
                     chrome.runtime.sendMessage({ action: 'reloadExtension' });
+                } else if (item.actionId === 'examSim') {
+                    spotlight.style.display = 'none';
+                    showExamSimulator();
+                } else if (item.actionId === 'navDash') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/current_courses';
+                } else if (item.actionId === 'navScore') {
+                    window.location.href = 'https://score-checker-379619009600.asia-south1.run.app/course_wise';
+                } else if (item.actionId === 'showTour') {
+                    spotlight.style.display = 'none';
+                    showFeatureTour();
+                } else if (item.actionId === 'bulkExport') {
+                    bulkScrapeAll();
+                } else if (item.actionId === 'unlockPage') {
+                    document.oncontextmenu = null; document.onselectstart = null;
+                    document.querySelectorAll('*').forEach(el => { el.style.userSelect = 'auto'; el.style.pointerEvents = 'auto'; });
+                    showToast('Editor Unlocked');
                 } else if (item.actionId.includes('explain')) {
                     spotlight.style.display = 'none';
                     openInAI(item.actionId.replace('explain', '').toLowerCase());
                 } else {
                     spotlight.style.display = 'none';
-                    handleUIToggle(item.actionId);
+                    if (typeof enhancedHandleUIToggle === 'function') enhancedHandleUIToggle(item.actionId);
+                    else handleUIToggle(item.actionId);
                 }
             } else {
-                // If the click happened on an item (NOT an action), toggle its selection
                 if (selectedItems.has(item.text)) selectedItems.delete(item.text);
                 else selectedItems.add(item.text);
                 
                 lastSelectedIndex = currentMatches.indexOf(item);
                 localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
-                renderResults(cachedItems || [], true);
+                renderResults(currentMatches, true);
 
                 // Option: If NOT clicking a checkbox/meta area, just navigate? 
                 // User's request suggests they WANT selection for bulk, so we toggle.
@@ -1274,46 +1295,9 @@
             };
             
             items.forEach(item => {
-                const q = input.value.toLowerCase().trim();
-                const tag = (item.typeLabel || '').toLowerCase();
-                const text = (item.text || '').toLowerCase();
-                const bread = (item.breadcrumb || '').toLowerCase();
-                const desc = (item.description || '').toLowerCase();
-                
-                const matchesSearch = text.includes(q) || bread.includes(q) || desc.includes(q) || tag.includes(q);
-                if (q && !matchesSearch) return;
-
-                const isNote = text.includes('practice') || text.includes('not graded') || text.includes('non-graded') || text.includes('mock') || text.includes('ungraded');
-                const isExam = (text.includes('oppe') || text.includes('nppe') || bread.includes('oppe') || bread.includes('nppe')) && !isNote;
-                const isProgrammingFlag = item.isProgramming || text.includes('programming') || tag.includes('grpa');
-                const isGrPA_Explicit = isProgrammingFlag && (item.isGraded || text.includes('graded') || tag.includes('grpa') || desc.includes('graded'));
-                const isGrPA = isGrPA_Explicit && !isExam && !isNote; 
-                const isQuiz = (tag.includes('quiz') || text.includes('quiz')) && !isGrPA && !isExam && !isNote;
-                const isGraded = (item.isGraded || tag.includes('graded') || text.includes('graded assignment') || desc.includes('graded')) && !isProgrammingFlag && !isGrPA && !isExam && !isNote && !isQuiz;
-
-                let matchesFilter = true;
-                if (activeFilter !== 'all') {
-                    if (activeFilter === 'video') matchesFilter = tag.includes('video') && !isNote;
-                    else if (activeFilter === 'graded') matchesFilter = isGraded;
-                    else if (activeFilter === 'grpa') matchesFilter = isGrPA;
-                    else if (activeFilter === 'assets') matchesFilter = item.hasAssets;
-                    else if (activeFilter === 'command') matchesFilter = item.actionId || bread.includes('system');
-                    else if (activeFilter === 'pending') matchesFilter = (isGraded || isGrPA || isQuiz || isExam) && !item.isDone;
-                    else matchesFilter = false;
-                }
-                
-                if (matchesFilter) {
-                   let group = 'COURSE OUTLINE';
-                   if (item.actionId || bread.includes('system')) group = 'SYSTEM COMMANDS';
-                   else if (isExam) group = 'PROGRAMMING EXAMS (OPPE/NPPE)';
-                   else if (tag.includes('video') && !isNote) group = 'LECTURE VIDEOS';
-                   else if (isGrPA) group = 'PROGRAMMING ASSIGNMENTS';
-                   else if (isQuiz) group = 'GRADED QUIZZES';
-                   else if (isGraded) group = 'GRADED ASSIGNMENTS';
-                   
-                   groupMap[group] = groupMap[group] || [];
-                   groupMap[group].push(item);
-                }
+                const group = item.group || 'COURSE OUTLINE';
+                groupMap[group] = groupMap[group] || [];
+                groupMap[group].push(item);
             });
 
             currentMatches = [];
@@ -1419,6 +1403,16 @@
 
             const allItems = [];
             
+            // ⚡ ACADEMIC COMMANDS (FIRST-CLASS RESULTS)
+            [
+                { text: '🎓 Exam Simulator (Path to S)', actionId: 'examSim', typeLabel: 'COMMAND', color: '#db2777', description: 'Simulate required quiz/final scores' },
+                { text: '🏠 Go to My Dashboard', actionId: 'navDash', typeLabel: 'NAV', color: '#1565c0', description: 'Jump to current course outline' },
+                { text: '📊 Open Score Checker', actionId: 'navScore', typeLabel: 'NAV', color: '#2e7d32', description: 'Jump to detailed quiz grades' },
+                { text: '✨ Feature Tour (What\'s New)', actionId: 'showTour', typeLabel: 'COMMAND', color: '#7b1fa2', description: 'Show all academic suite features' },
+                { text: '📥 Bulk Export All (Active)', actionId: 'bulkExport', typeLabel: 'COMMAND', color: '#ef6c00', description: 'Export all selected course units' },
+                { text: '🔓 Unlock Editor/Copy', actionId: 'unlockPage', typeLabel: 'COMMAND', color: '#455a64', description: 'Force enable text selection/copy' }
+            ].forEach(cmd => allItems.push({ ...cmd, breadcrumb: 'Academic Engine', isSub: true }));
+
             headers.forEach(weekEl => {
                 const weekTitle = (
                     weekEl.querySelector('.units__items-title span')?.innerText.trim() || 
@@ -1509,6 +1503,7 @@
                 { text: '✨ Brainstorm with Gemini', typeLabel: 'Action', el: null, action: 'explainGemini' },
                 { text: `📦 ${includeAssets ? 'DISABLE' : 'ENABLE'} Asset Scraper (PDFs/Resources)`, typeLabel: 'Action', el: null, action: 'toggleAssets' },
                 { text: '📦 Bulk Export All Weeks (Export All)', typeLabel: 'Action', el: null, action: 'bulkExport' },
+                { text: '🚀 ENABLE ACADEMIC OS (SPEEDY UI)', typeLabel: 'Action', el: null, action: 'enableAcademicOS' },
                 { text: '🔄 RELOAD Extension (Developer)', typeLabel: 'Action', el: null, action: 'reloadExtension' }
             ];
 
@@ -1626,11 +1621,251 @@
                    localStorage.removeItem('iitm_spotlight_history');
                    showToast('History Purged');
                 }, global: true },
+                { name: 'Go to My Dashboard', key: 'H', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/current_courses', global: true },
+                { name: 'Open Score Checker', key: 'S', run: () => window.location.href = 'https://score-checker-379619009600.asia-south1.run.app/course_wise', global: true },
+                { name: 'Exam Simulator (Path to S)', key: 'P', run: () => {
+                    const selector = document.getElementById('iitm-exam-simulator');
+                    if (selector) selector.remove();
+                    showExamSimulator();
+                }, global: true },
+                { name: 'Feature Tour (What\'s New)', key: '?', run: () => showFeatureTour(), global: true },
                 { name: 'Reload Extension', key: 'R', run: () => {
                     spotlight.style.display = 'none';
                     chrome.runtime.sendMessage({ action: 'reloadExtension' });
                 }, global: true }
             ];
+
+            const showExamSimulator = () => {
+                const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
+                chrome.storage.local.get('iitm_quiz_cache', (storageData) => {
+                    const cache = (storageData.iitm_quiz_cache || {})[courseName] || {};
+                    
+                    const modal = document.createElement('div');
+                    modal.id = 'iitm-exam-simulator';
+                    modal.style.cssText = `
+                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        width: 480px; background: rgba(18, 18, 18, 0.98); 
+                        border: 1px solid rgba(255,255,255,0.12); border-radius: 24px;
+                        box-shadow: 0 40px 120px rgba(0,0,0,1); color: white;
+                        padding: 35px; z-index: 100000; font-family: 'Inter', system-ui, sans-serif;
+                        backdrop-filter: blur(25px); animation: spotlightIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    `;
+                    
+                    // --- ROBUST DOM SCRAPER ---
+                    const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p'));
+                    
+                    const assignmentScores = [];
+                    const quizScores = [];
+                    
+                    rawElements.forEach(el => {
+                        const text = el.innerText;
+                        const scoreMatch = text.match(/(?:Score:\s*|[\w\s]+-\s*)(\d+\.?\d*)/i);
+                        if (scoreMatch) {
+                            const val = parseFloat(scoreMatch[1]);
+                            if (text.toLowerCase().includes('quiz')) quizScores.push(val);
+                            else assignmentScores.push(val);
+                        }
+                    });
+                    
+                    const avgA = assignmentScores.length > 0 ? (assignmentScores.reduce((a,b) => a+b, 0) / assignmentScores.length) : 100;
+                    // Preference: Cache > Scraped > 0
+                    const q1 = cache.q1 || quizScores[0] || 0;
+                    const q2 = cache.q2 || quizScores[1] || 0;
+                
+                modal.innerHTML = `
+                    <style>
+                        #iitm-exam-simulator input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 5px; background: rgba(255,255,255,0.1); outline: none; }
+                        #iitm-exam-simulator input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #db2777; cursor: pointer; border: 2px solid white; }
+                        .threshold-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px; }
+                        .threshold-val { font-weight: 800; color: #db2777; }
+                    </style>
+                    <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
+                        <div>
+                            <div style="font-size: 22px; font-weight: 950; color:#db2777; letter-spacing:-0.5px;">🎓 Exam Simulator</div>
+                            <div style="font-size: 11px; opacity: 0.5; margin-top:2px;">Strategic Course Outcome Projection</div>
+                        </div>
+                        <div id="sim-status-badge" style="background:rgba(219,39,119,0.1); color:#db2777; font-size:9px; font-weight:900; padding:4px 8px; border-radius:8px; border:1px solid rgba(219,39,119,0.3);">LIVE HUD</div>
+                    </div>
+                    
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:20px;">
+                        <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border:1px solid rgba(255,255,255,0.05);">
+                            <div style="font-size: 10px; opacity: 0.5; text-transform:uppercase;">Assignment Avg</div>
+                            <div style="font-size: 18px; font-weight: 800; margin-top:4px;" id="disp-avg">${avgA.toFixed(1)}%</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border:1px solid rgba(255,255,255,0.05);">
+                            <div style="font-size: 10px; opacity: 0.5; text-transform:uppercase;">Current Total (T)</div>
+                            <div style="font-size: 18px; font-weight: 800; margin-top:4px;" id="disp-total">---</div>
+                        </div>
+                    </div>
+
+                    <div style="background:rgba(255,255,255,0.02); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05); margin-bottom:25px;">
+                        <div style="font-size:11px; font-weight:700; margin-bottom:15px; opacity:0.8; display:flex; align-items:center; gap:6px;">
+                            <span>🎮</span> PROJECTION CONTROLS
+                        </div>
+                        
+                        <div style="margin-bottom:15px;">
+                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px;">
+                                <span style="opacity:0.6;">Quiz 1 Score</span>
+                                <span id="val-q1" style="font-weight:900; color:#db2777;">${q1}</span>
+                            </div>
+                            <input type="range" id="sim-q1" min="0" max="100" value="${q1}">
+                        </div>
+
+                        <div style="margin-bottom:15px;">
+                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px;">
+                                <span style="opacity:0.6;">Quiz 2 Score</span>
+                                <span id="val-q2" style="font-weight:900; color:#db2777;">${q2}</span>
+                            </div>
+                            <input type="range" id="sim-q2" min="0" max="100" value="${q2}">
+                        </div>
+
+                        <div style="margin-bottom:5px;">
+                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px;">
+                                <span style="opacity:0.6;">Projected Assignment Overall</span>
+                                <input type="number" id="sim-avg" value="${avgA.toFixed(1)}" style="background:none; border:none; color:#db2777; font-weight:900; width:45px; text-align:right; font-size:11px; outline:none;">
+                            </div>
+                            <input type="range" id="sim-avg-range" min="0" max="100" value="${avgA}">
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom:20px;">
+                        <div class="threshold-row"><span>S Grade (90+) Needed Score:</span> <span class="threshold-val" id="need-s">---</span></div>
+                        <div class="threshold-row"><span>A Grade (80+) Needed Score:</span> <span class="threshold-val" id="need-a" style="color:#7e22ce;">---</span></div>
+                        <div class="threshold-row"><span>Pass (40+) Needed Score:</span> <span class="threshold-val" id="need-pass" style="color:#22c55e;">---</span></div>
+                    </div>
+
+                    <div id="grade-summary" style="padding:15px; border-radius:12px; background:linear-gradient(135deg, rgba(219,39,119,0.15), rgba(126,34,206,0.15)); border:1px solid rgba(219,39,119,0.2); text-align:center;">
+                        <div style="font-size:10px; opacity:0.6; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Probability Matrix</div>
+                        <div id="prob-status" style="font-size:14px; font-weight:800; color:#fff;">Evaluating path...</div>
+                    </div>
+
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button id="close-sim" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:12px; padding:10px; cursor:pointer; font-size:12px; font-weight:700;">Close</button>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                const update = () => {
+                    const sq1 = Number(document.getElementById('sim-q1').value);
+                    const sq2 = Number(document.getElementById('sim-q2').value);
+                    const savg = Number(document.getElementById('sim-avg-range').value);
+                    
+                    document.getElementById('val-q1').innerText = sq1;
+                    document.getElementById('val-q2').innerText = sq2;
+                    document.getElementById('disp-avg').innerText = savg.toFixed(1) + "%";
+                    document.getElementById('sim-avg').value = savg.toFixed(1);
+                    
+                    // FORMULA: T = 0.2*A + 0.3*(Q1+Q2)/2 + 0.5*F
+                    const currentT = (savg * 0.2) + ((sq1 + sq2) / 2 * 0.3);
+                    document.getElementById('disp-total').innerText = currentT.toFixed(1);
+                    
+                    const calculateNeeded = (target) => {
+                        const needed = (target - currentT) / 0.5;
+                        if (needed <= 0) return "Achieved 🎉";
+                        if (needed > 100) return "Impossible ❌";
+                        return needed.toFixed(1) + "%";
+                    };
+                    
+                    document.getElementById('need-s').innerText = calculateNeeded(90);
+                    document.getElementById('need-a').innerText = calculateNeeded(80);
+                    document.getElementById('need-pass').innerText = calculateNeeded(40);
+                    
+                    const needS = (90 - currentT) / 0.5;
+                    const probStatus = document.getElementById('prob-status');
+                    if (needS <= 40) probStatus.innerText = "🔥 HIGH PROBABILITY S";
+                    else if (needS <= 70) probStatus.innerText = "✨ ON TRACK FOR S";
+                    else if (needS <= 100) probStatus.innerText = "⚡ CLUTCH NEEDED FOR S";
+                    else probStatus.innerText = "🎯 AIM FOR A-GRADE";
+                };
+
+                const q1In = document.getElementById('sim-q1');
+                const q2In = document.getElementById('sim-q2');
+                const avgRange = document.getElementById('sim-avg-range');
+                const avgNum = document.getElementById('sim-avg');
+
+                q1In.oninput = update;
+                q2In.oninput = update;
+                avgRange.oninput = update;
+                avgNum.oninput = (e) => { avgRange.value = e.target.value; update(); };
+                
+                document.getElementById('close-sim').onclick = () => modal.remove();
+                
+                update();
+
+                // Escape key
+                const handleEsc = (e) => {
+                    if (e.key === 'Escape') {
+                        modal.remove();
+                        document.removeEventListener('keydown', handleEsc);
+                    }
+                };
+                document.addEventListener('keydown', handleEsc);
+                });
+            };
+
+            const showFeatureTour = () => {
+                const modal = document.createElement('div');
+                modal.id = 'iitm-feature-tour';
+                modal.style.cssText = `
+                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                    width: 520px; background: rgba(15, 15, 15, 0.98); 
+                    border: 1px solid rgba(255,255,255,0.1); border-radius: 28px;
+                    box-shadow: 0 50px 150px rgba(0,0,0,1); color: white;
+                    padding: 40px; z-index: 100005; font-family: 'Inter', sans-serif;
+                    backdrop-filter: blur(30px); animation: spotlightIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+                `;
+                
+                modal.innerHTML = `
+                    <div style="text-align:center; margin-bottom:30px;">
+                        <div style="font-size: 10px; font-weight: 800; color: #db2777; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">Academic Engine v2.0</div>
+                        <div style="font-size: 28px; font-weight: 950; letter-spacing: -1px;">Unlock Your Full Potential</div>
+                    </div>
+                    
+                    <div style="display:flex; flex-direction:column; gap:24px;">
+                        <div style="display:flex; gap:18px; align-items:start;">
+                            <div style="background:rgba(219,39,119,0.1); color:#db2777; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(219,39,119,0.2);">🎓</div>
+                            <div>
+                                <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Exam Simulator (⌘ K → P)</div>
+                                <div style="font-size:12px; opacity:0.6; line-height:1.6;">Simulate your future performance. See exactly what you need in Quizzes and Finals to maintain your S-Grade. Includes probability heatmaps and live T-Score tracking.</div>
+                            </div>
+                        </div>
+                        
+                        <div style="display:flex; gap:18px; align-items:start;">
+                            <div style="background:rgba(220, 38, 38, 0.1); color:#dc2626; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(220,38,38,0.2);">🚨</div>
+                            <div>
+                                <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Deadline HUD (Automated)</div>
+                                <div style="font-size:12px; opacity:0.6; line-height:1.6;">Never miss a submission. A persistent, urgent HUD appears in the bottom-right when a deadline is within 48 hours for any currently open course unit.</div>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; gap:18px; align-items:start;">
+                            <div style="background:rgba(234, 179, 8, 0.1); color:#eab308; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(234,179,8,0.2);">⚡</div>
+                            <div>
+                                <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Universal Spotlight (⌘ K)</div>
+                                <div style="font-size:12px; opacity:0.6; line-height:1.6;">Instant command palette for everything. Quick jumping: Press <b>H</b> for Home Dashboard or <b>S</b> for Score Checker directly from the menu.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="close-tour" style="width:100%; height:48px; background:#db2777; border:none; border-radius:16px; color:white; font-weight:800; margin-top:35px; cursor:pointer; font-size:15px; transition:0.3s; box-shadow: 0 10px 40px rgba(219,39,119,0.3);">Got it, let's crush it!</button>
+                    <div style="text-align:center; margin-top:15px; font-size:10px; opacity:0.4;">Built for IIT Madras Scholars • Press ESC to close</div>
+                `;
+                
+                document.body.appendChild(modal);
+                document.getElementById('close-tour').onclick = () => modal.remove();
+                
+                const handleEsc = (e) => {
+                    if (e.key === 'Escape') {
+                        modal.remove();
+                        document.removeEventListener('keydown', handleEsc);
+                    }
+                };
+                document.addEventListener('keydown', handleEsc);
+            };
+
+
+
 
             if (item) {
                 allActions.unshift(
@@ -1731,15 +1966,52 @@
                 const text = (item.text || '').toLowerCase();
                 const bread = (item.breadcrumb || '').toLowerCase();
                 const deep = (item.searchText || '').toLowerCase();
+                const tag = (item.typeLabel || '').toLowerCase();
+                const desc = (item.description || '').toLowerCase();
+                
+                // INTERNAL FILTERING (Unified logic)
+                const isNote = text.includes('practice') || text.includes('not graded') || text.includes('non-graded') || text.includes('mock') || text.includes('ungraded');
+                const isExam = (text.includes('oppe') || text.includes('nppe') || bread.includes('oppe') || bread.includes('nppe')) && !isNote;
+                const isProgrammingFlag = item.isProgramming || text.includes('programming') || tag.includes('grpa');
+                const isGrPA_Explicit = isProgrammingFlag && (item.isGraded || text.includes('graded') || tag.includes('grpa') || desc.includes('graded'));
+                const isGrPA = isGrPA_Explicit && !isExam && !isNote; 
+                const isQuiz = (tag.includes('quiz') || text.includes('quiz')) && !isGrPA && !isExam && !isNote;
+                const isGraded = (item.isGraded || tag.includes('graded') || text.includes('graded assignment') || desc.includes('graded')) && !isProgrammingFlag && !isGrPA && !isExam && !isNote && !isQuiz;
+
+                let matchesFilter = true;
+                if (activeFilter !== 'all') {
+                    if (activeFilter === 'video') matchesFilter = tag.includes('video') && !isNote;
+                    else if (activeFilter === 'graded') matchesFilter = isGraded;
+                    else if (activeFilter === 'grpa') matchesFilter = isGrPA;
+                    else if (activeFilter === 'assets') matchesFilter = item.hasAssets;
+                    else if (activeFilter === 'command') matchesFilter = item.actionId || bread.includes('system');
+                    else if (activeFilter === 'pending') matchesFilter = (isGraded || isGrPA || isQuiz || isExam) && !item.isDone;
+                    else if (activeFilter === 'selected') matchesFilter = selectedItems.has(item.text);
+                    else matchesFilter = false;
+                }
+                
+                if (!matchesFilter) return { ...item, score: -1 };
+
+                // Group assignments for renderResults
+                let group = 'COURSE OUTLINE';
+                if (item.actionId || bread.includes('system')) group = 'SYSTEM COMMANDS';
+                else if (isExam) group = 'PROGRAMMING EXAMS (OPPE/NPPE)';
+                else if (tag.includes('video') && !isNote) group = 'LECTURE VIDEOS';
+                else if (isGrPA) group = 'PROGRAMMING ASSIGNMENTS';
+                else if (isQuiz) group = 'GRADED QUIZZES';
+                else if (isGraded) group = 'GRADED ASSIGNMENTS';
+                item.group = group;
+
                 words.forEach(word => {
                     if (text === word) score += 100;
                     else if (text.startsWith(word)) score += 50;
                     else if (text.includes(word)) score += 10;
                     if (bread.includes(word)) score += 5;
+                    if (tag.includes(word)) score += 5;
                     if (deep && deep.includes(word)) score += 3;
                 });
                 return { ...item, score };
-            }).filter(item => item.score > 0 || words.length === 0)
+            }).filter(item => item.score >= 0 && (words.length === 0 || item.score > 0))
               .sort((a, b) => b.score - a.score);
 
             renderResults(matches, preserveSelection);
@@ -1829,6 +2101,25 @@
                         </div>
                     `;
                     tools.appendChild(projection);
+
+                    // Sync scores for Simulator
+                    const quizScores = {};
+                    rows.forEach(r => {
+                        const name = r.querySelector('td:first-child')?.innerText.toLowerCase() || '';
+                        const score = parseFloat(r.querySelector('td:last-child')?.innerText);
+                        if (!isNaN(score)) {
+                            if (name.includes('quiz 1')) quizScores.q1 = score;
+                            if (name.includes('quiz 2')) quizScores.q2 = score;
+                        }
+                    });
+                    if (Object.keys(quizScores).length > 0) {
+                        const course = document.querySelector('.course-title')?.innerText || 'Active course';
+                        chrome.storage.local.get('iitm_quiz_cache', (d) => {
+                            const cache = d.iitm_quiz_cache || {};
+                            cache[course] = { ...cache[course], ...quizScores };
+                            chrome.storage.local.set({ iitm_quiz_cache: cache });
+                        });
+                    }
                 }
                 addGlobalListener('click', '.close-score-tools', () => tools.style.display = 'none');
                 console.log('✅ IITM Scraper: Injected tools into container');
@@ -1997,6 +2288,73 @@
 
 
 
+    // 4. DEADLINE OS HUD (Urgent tracking)
+    const DEADLINE_THRESHOLD = 48 * 60 * 60 * 1000; // 48 Hours
+    let discoveredDeadlines = []; 
+
+    const injectDeadlineOS = () => {
+        const dueElements = document.querySelectorAll('.gcb-submission-due-date, .due-date, .deadline');
+        const now = new Date();
+
+        dueElements.forEach(el => {
+            const text = el.innerText;
+            const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})|(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})/);
+            if (dateMatch) {
+                const dueDate = new Date(dateMatch[0].includes('-') ? dateMatch[0] : dateMatch[0]); // Simple parse
+                const diff = dueDate - now;
+                
+                if (diff > 0 && diff < DEADLINE_THRESHOLD) {
+                    const title = document.querySelector('.assignment-title, h1, .title, .units__subitems--selected .units__subitems-title')?.innerText || "Upcoming Assignment";
+                    if (!discoveredDeadlines.find(d => d.title === title)) {
+                        discoveredDeadlines.push({ title, date: dateMatch[0], dueDate, diff });
+                    }
+                }
+            }
+        });
+
+        if (discoveredDeadlines.length === 0) return;
+
+        let hud = document.getElementById('iitm-deadline-hud');
+        if (!hud) {
+            hud = document.createElement('div');
+            hud.id = 'iitm-deadline-hud';
+            hud.style.cssText = `
+                position: fixed; bottom: 85px; right: 25px; z-index: 9999;
+                display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+            `;
+            document.body.appendChild(hud);
+        }
+
+        hud.innerHTML = discoveredDeadlines.map(d => {
+            const timeLeft = d.dueDate - new Date();
+            const hours = Math.floor(timeLeft / (60 * 60 * 1000));
+            const mins = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
+            if (timeLeft <= 0) return '';
+            
+            return `
+                <div style="
+                    background: rgba(185, 28, 28, 0.95); backdrop-filter: blur(15px);
+                    color: white; padding: 14px 20px; border-radius: 16px;
+                    border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+                    min-width: 220px; animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto;
+                    font-family: 'Inter', sans-serif;
+                " onclick="this.remove()">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size: 9px; opacity: 0.7; text-transform: uppercase; font-weight: 900; letter-spacing: 1px;">Deadline Critical</span>
+                        <span style="width:8px; height:8px; background:#fff; border-radius:50%; box-shadow:0 0 10px #fff; animation: pulse 1.5s infinite;"></span>
+                    </div>
+                    <div style="font-size: 13px; font-weight: 800; margin-bottom: 10px; line-height: 1.3;">${d.title.split('\n')[0].substring(0,35)}</div>
+                    <div style="display:flex; align-items:baseline; gap:4px;">
+                        <span style="font-size: 24px; font-weight: 900; color: #fff;">${hours}</span>
+                        <span style="font-size: 10px; opacity: 0.8; font-weight: 700;">HRS</span>
+                        <span style="font-size: 24px; font-weight: 900; color: #fff; margin-left: 8px;">${mins}</span>
+                        <span style="font-size: 10px; opacity: 0.8; font-weight: 700;">MINS</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    };
+
     // Auto-Loader loop (Reduced frequency for site speed)
     setInterval(() => {
         setupSpotlightListeners();
@@ -2004,12 +2362,15 @@
         if (!document.getElementById('iitm-header-search')) injectHeaderSearch();
         if (!document.getElementById('iitm-spotlight')) injectSpotlight();
         if (!document.getElementById('iitm-focus-bar-container')) injectFocusBar();
-        injectProgressTracker(); // Always run to capture dynamic Angular DOM/Icon updates
-        injectScoreCheckerTools(); // Has its own check
+        injectProgressTracker(); 
+        injectDeadlineOS();
+        injectScoreCheckerTools(); 
         autoCloseSidebar();
     }, 2500);
 
     // Global Trigger for Bulk Export
     window.addEventListener('iitm-trigger-bulk-export', bulkScrapeAll);
 
+
 })();
+
