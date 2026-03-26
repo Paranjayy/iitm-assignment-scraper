@@ -451,24 +451,17 @@
                 const isGhostLoaderActive = document.querySelector('.ghost-loader, .skeleton') !== null;
                 const isSpinnerActive = document.querySelector('.spinner-overlay, app-spinner') !== null;
                 
-                // 3. POSITIVE VERIFICATION: Is final content actively mounted?
-                const mainContentWrapper = document.querySelector('.modules__content-main, .layout-container, app-programming-layout, .video-container');
-                const isContentMounted = mainContentWrapper && mainContentWrapper.children.length > 0;
-                
                 const isGetItemsReady = typeof window.__iitm_get_items === 'function';
                 
-                // Strict Mathematical Gate
-                const isFullyLoaded = isSidebarReady && 
-                                      isContentMounted && 
+                // Strict Gate: Wait AT LEAST 2.5 seconds (5 attempts) for Angular to begin its routing and spawn the skeleton loaders,
+                // THEN evaluate if those loaders have died.
+                const isFullyLoaded = waitAttempts > 5 && 
+                                      isSidebarReady && 
                                       isGetItemsReady && 
                                       !isGhostLoaderActive && 
                                       !isSpinnerActive;
                                       
-                if (waitAttempts % 5 === 0) {
-                    console.log(`[IITM Scraper] Polling State -> Sidebar: ${isSidebarReady}, Content: ${isContentMounted}, Ghosts: ${isGhostLoaderActive}, Spinner: ${isSpinnerActive}, hook: ${isGetItemsReady}`);
-                }
-                
-                if (isFullyLoaded || waitAttempts > 40) { // wait up to 20 seconds
+                if (isFullyLoaded || waitAttempts > 40) { // max timeout 20 seconds
                     clearInterval(delayClose);
                     if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
                     
