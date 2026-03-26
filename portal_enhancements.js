@@ -1209,6 +1209,9 @@
                 } else if (item.actionId === 'showTour') {
                     spotlight.style.display = 'none';
                     showFeatureTour();
+                } else if (item.actionId === 'syncScores') {
+                    spotlight.style.display = 'none';
+                    syncCurrentPageScores(false);
                 } else if (item.actionId === 'bulkExport') {
                     bulkScrapeAll();
                 } else if (item.actionId === 'unlockPage') {
@@ -1410,7 +1413,8 @@
                 { text: '📊 Open Score Checker', group: 'SYSTEM COMMANDS', actionId: 'navScore', typeLabel: 'NAV', color: '#2e7d32', description: 'Jump to detailed quiz grades' },
                 { text: '✨ Feature Tour (What\'s New)', group: 'SYSTEM COMMANDS', actionId: 'showTour', typeLabel: 'COMMAND', color: '#7b1fa2', description: 'Show all academic suite features' },
                 { text: '📥 Bulk Export All (Active)', group: 'SYSTEM COMMANDS', actionId: 'bulkExport', typeLabel: 'COMMAND', color: '#ef6c00', description: 'Export all selected course units' },
-                { text: '🔓 Unlock Editor/Copy', group: 'SYSTEM COMMANDS', actionId: 'unlockPage', typeLabel: 'COMMAND', color: '#455a64', description: 'Force enable text selection/copy' }
+                { text: '🔓 Unlock Editor/Copy', group: 'SYSTEM COMMANDS', actionId: 'unlockPage', typeLabel: 'COMMAND', color: '#455a64', description: 'Force enable text selection/copy' },
+                { text: '🔄 Sync Scores from Page', group: 'SYSTEM COMMANDS', actionId: 'syncScores', typeLabel: 'TOOL', color: '#0288d1', description: 'Manually scrape and save scores' }
             ].forEach(cmd => allItems.push({ ...cmd, breadcrumb: 'Academic Engine', isSub: true }));
 
             headers.forEach(weekEl => {
@@ -1634,239 +1638,6 @@
                     chrome.runtime.sendMessage({ action: 'reloadExtension' });
                 }, global: true }
             ];
-
-            const showExamSimulator = () => {
-                const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
-                chrome.storage.local.get('iitm_quiz_cache', (storageData) => {
-                    const cache = (storageData.iitm_quiz_cache || {})[courseName] || {};
-                    
-                    const modal = document.createElement('div');
-                    modal.id = 'iitm-exam-simulator';
-                    modal.style.cssText = `
-                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                        width: 480px; background: rgba(18, 18, 18, 0.98); 
-                        border: 1px solid rgba(255,255,255,0.12); border-radius: 24px;
-                        box-shadow: 0 40px 120px rgba(0,0,0,1); color: white;
-                        padding: 35px; z-index: 100000; font-family: 'Inter', system-ui, sans-serif;
-                        backdrop-filter: blur(25px); animation: spotlightIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                    `;
-                    
-                    // --- ROBUST DOM SCRAPER ---
-                    const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p'));
-                    
-                    const assignmentScores = [];
-                    const quizScores = [];
-                    
-                    rawElements.forEach(el => {
-                        const text = el.innerText;
-                        const scoreMatch = text.match(/(?:Score:\s*|[\w\s]+-\s*)(\d+\.?\d*)/i);
-                        if (scoreMatch) {
-                            const val = parseFloat(scoreMatch[1]);
-                            if (text.toLowerCase().includes('quiz')) quizScores.push(val);
-                            else assignmentScores.push(val);
-                        }
-                    });
-                    
-                    const avgA = assignmentScores.length > 0 ? (assignmentScores.reduce((a,b) => a+b, 0) / assignmentScores.length) : 100;
-                    // Preference: Cache > Scraped > 0
-                    const q1 = cache.q1 || quizScores[0] || 0;
-                    const q2 = cache.q2 || quizScores[1] || 0;
-                
-                modal.innerHTML = `
-                    <style>
-                        #iitm-exam-simulator input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 5px; background: rgba(255,255,255,0.1); outline: none; }
-                        #iitm-exam-simulator input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #db2777; cursor: pointer; border: 2px solid white; }
-                        .threshold-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px; }
-                        .threshold-val { font-weight: 800; color: #db2777; }
-                    </style>
-                    <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
-                        <div>
-                            <div style="font-size: 22px; font-weight: 950; color:#db2777; letter-spacing:-0.5px;">🎓 Exam Simulator</div>
-                            <div style="font-size: 11px; opacity: 0.5; margin-top:2px;">Strategic Course Outcome Projection</div>
-                        </div>
-                        <div id="sim-status-badge" style="background:rgba(219,39,119,0.1); color:#db2777; font-size:9px; font-weight:900; padding:4px 8px; border-radius:8px; border:1px solid rgba(219,39,119,0.3);">LIVE HUD</div>
-                    </div>
-                    
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:20px;">
-                        <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border:1px solid rgba(255,255,255,0.05);">
-                            <div style="font-size: 10px; opacity: 0.5; text-transform:uppercase;">Assignment Avg</div>
-                            <div style="font-size: 18px; font-weight: 800; margin-top:4px;" id="disp-avg">${avgA.toFixed(1)}%</div>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border:1px solid rgba(255,255,255,0.05);">
-                            <div style="font-size: 10px; opacity: 0.5; text-transform:uppercase;">Current Total (T)</div>
-                            <div style="font-size: 18px; font-weight: 800; margin-top:4px;" id="disp-total">---</div>
-                        </div>
-                    </div>
-
-                    <div style="background:rgba(255,255,255,0.02); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05); margin-bottom:25px;">
-                        <div style="font-size:11px; font-weight:700; margin-bottom:15px; opacity:0.8; display:flex; align-items:center; gap:6px;">
-                            <span>🎮</span> PROJECTION CONTROLS
-                        </div>
-                        
-                        <div style="margin-bottom:15px;">
-                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px;">
-                                <span style="opacity:0.6;">Quiz 1 Score</span>
-                                <span id="val-q1" style="font-weight:900; color:#db2777;">${q1}</span>
-                            </div>
-                            <input type="range" id="sim-q1" min="0" max="100" value="${q1}">
-                        </div>
-
-                        <div style="margin-bottom:15px;">
-                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px;">
-                                <span style="opacity:0.6;">Quiz 2 Score</span>
-                                <span id="val-q2" style="font-weight:900; color:#db2777;">${q2}</span>
-                            </div>
-                            <input type="range" id="sim-q2" min="0" max="100" value="${q2}">
-                        </div>
-
-                        <div style="margin-bottom:5px;">
-                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px;">
-                                <span style="opacity:0.6;">Projected Assignment Overall</span>
-                                <input type="number" id="sim-avg" value="${avgA.toFixed(1)}" style="background:none; border:none; color:#db2777; font-weight:900; width:45px; text-align:right; font-size:11px; outline:none;">
-                            </div>
-                            <input type="range" id="sim-avg-range" min="0" max="100" value="${avgA}">
-                        </div>
-                    </div>
-
-                    <div style="margin-bottom:20px;">
-                        <div class="threshold-row"><span>S Grade (90+) Needed Score:</span> <span class="threshold-val" id="need-s">---</span></div>
-                        <div class="threshold-row"><span>A Grade (80+) Needed Score:</span> <span class="threshold-val" id="need-a" style="color:#7e22ce;">---</span></div>
-                        <div class="threshold-row"><span>Pass (40+) Needed Score:</span> <span class="threshold-val" id="need-pass" style="color:#22c55e;">---</span></div>
-                    </div>
-
-                    <div id="grade-summary" style="padding:15px; border-radius:12px; background:linear-gradient(135deg, rgba(219,39,119,0.15), rgba(126,34,206,0.15)); border:1px solid rgba(219,39,119,0.2); text-align:center;">
-                        <div style="font-size:10px; opacity:0.6; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Probability Matrix</div>
-                        <div id="prob-status" style="font-size:14px; font-weight:800; color:#fff;">Evaluating path...</div>
-                    </div>
-
-                    <div style="display:flex; gap:10px; margin-top:20px;">
-                        <button id="close-sim" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:12px; padding:10px; cursor:pointer; font-size:12px; font-weight:700;">Close</button>
-                    </div>
-                `;
-                
-                document.body.appendChild(modal);
-                
-                const update = () => {
-                    const sq1 = Number(document.getElementById('sim-q1').value);
-                    const sq2 = Number(document.getElementById('sim-q2').value);
-                    const savg = Number(document.getElementById('sim-avg-range').value);
-                    
-                    document.getElementById('val-q1').innerText = sq1;
-                    document.getElementById('val-q2').innerText = sq2;
-                    document.getElementById('disp-avg').innerText = savg.toFixed(1) + "%";
-                    document.getElementById('sim-avg').value = savg.toFixed(1);
-                    
-                    // FORMULA: T = 0.2*A + 0.3*(Q1+Q2)/2 + 0.5*F
-                    const currentT = (savg * 0.2) + ((sq1 + sq2) / 2 * 0.3);
-                    document.getElementById('disp-total').innerText = currentT.toFixed(1);
-                    
-                    const calculateNeeded = (target) => {
-                        const needed = (target - currentT) / 0.5;
-                        if (needed <= 0) return "Achieved 🎉";
-                        if (needed > 100) return "Impossible ❌";
-                        return needed.toFixed(1) + "%";
-                    };
-                    
-                    document.getElementById('need-s').innerText = calculateNeeded(90);
-                    document.getElementById('need-a').innerText = calculateNeeded(80);
-                    document.getElementById('need-pass').innerText = calculateNeeded(40);
-                    
-                    const needS = (90 - currentT) / 0.5;
-                    const probStatus = document.getElementById('prob-status');
-                    if (needS <= 40) probStatus.innerText = "🔥 HIGH PROBABILITY S";
-                    else if (needS <= 70) probStatus.innerText = "✨ ON TRACK FOR S";
-                    else if (needS <= 100) probStatus.innerText = "⚡ CLUTCH NEEDED FOR S";
-                    else probStatus.innerText = "🎯 AIM FOR A-GRADE";
-                };
-
-                const q1In = document.getElementById('sim-q1');
-                const q2In = document.getElementById('sim-q2');
-                const avgRange = document.getElementById('sim-avg-range');
-                const avgNum = document.getElementById('sim-avg');
-
-                q1In.oninput = update;
-                q2In.oninput = update;
-                avgRange.oninput = update;
-                avgNum.oninput = (e) => { avgRange.value = e.target.value; update(); };
-                
-                document.getElementById('close-sim').onclick = () => modal.remove();
-                
-                update();
-
-                // Escape key
-                const handleEsc = (e) => {
-                    if (e.key === 'Escape') {
-                        modal.remove();
-                        document.removeEventListener('keydown', handleEsc);
-                    }
-                };
-                document.addEventListener('keydown', handleEsc);
-                });
-            };
-
-            const showFeatureTour = () => {
-                const modal = document.createElement('div');
-                modal.id = 'iitm-feature-tour';
-                modal.style.cssText = `
-                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                    width: 520px; background: rgba(15, 15, 15, 0.98); 
-                    border: 1px solid rgba(255,255,255,0.1); border-radius: 28px;
-                    box-shadow: 0 50px 150px rgba(0,0,0,1); color: white;
-                    padding: 40px; z-index: 100005; font-family: 'Inter', sans-serif;
-                    backdrop-filter: blur(30px); animation: spotlightIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-                `;
-                
-                modal.innerHTML = `
-                    <div style="text-align:center; margin-bottom:30px;">
-                        <div style="font-size: 10px; font-weight: 800; color: #db2777; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">Academic Engine v2.0</div>
-                        <div style="font-size: 28px; font-weight: 950; letter-spacing: -1px;">Unlock Your Full Potential</div>
-                    </div>
-                    
-                    <div style="display:flex; flex-direction:column; gap:24px;">
-                        <div style="display:flex; gap:18px; align-items:start;">
-                            <div style="background:rgba(219,39,119,0.1); color:#db2777; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(219,39,119,0.2);">🎓</div>
-                            <div>
-                                <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Exam Simulator (⌘ K → P)</div>
-                                <div style="font-size:12px; opacity:0.6; line-height:1.6;">Simulate your future performance. See exactly what you need in Quizzes and Finals to maintain your S-Grade. Includes probability heatmaps and live T-Score tracking.</div>
-                            </div>
-                        </div>
-                        
-                        <div style="display:flex; gap:18px; align-items:start;">
-                            <div style="background:rgba(220, 38, 38, 0.1); color:#dc2626; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(220,38,38,0.2);">🚨</div>
-                            <div>
-                                <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Deadline HUD (Automated)</div>
-                                <div style="font-size:12px; opacity:0.6; line-height:1.6;">Never miss a submission. A persistent, urgent HUD appears in the bottom-right when a deadline is within 48 hours for any currently open course unit.</div>
-                            </div>
-                        </div>
-
-                        <div style="display:flex; gap:18px; align-items:start;">
-                            <div style="background:rgba(234, 179, 8, 0.1); color:#eab308; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(234,179,8,0.2);">⚡</div>
-                            <div>
-                                <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Universal Spotlight (⌘ K)</div>
-                                <div style="font-size:12px; opacity:0.6; line-height:1.6;">Instant command palette for everything. Quick jumping: Press <b>H</b> for Home Dashboard or <b>S</b> for Score Checker directly from the menu.</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button id="close-tour" style="width:100%; height:48px; background:#db2777; border:none; border-radius:16px; color:white; font-weight:800; margin-top:35px; cursor:pointer; font-size:15px; transition:0.3s; box-shadow: 0 10px 40px rgba(219,39,119,0.3);">Got it, let's crush it!</button>
-                    <div style="text-align:center; margin-top:15px; font-size:10px; opacity:0.4;">Built for IIT Madras Scholars • Press ESC to close</div>
-                `;
-                
-                document.body.appendChild(modal);
-                document.getElementById('close-tour').onclick = () => modal.remove();
-                
-                const handleEsc = (e) => {
-                    if (e.key === 'Escape') {
-                        modal.remove();
-                        document.removeEventListener('keydown', handleEsc);
-                    }
-                };
-                document.addEventListener('keydown', handleEsc);
-            };
-
-
-
-
             if (item) {
                 allActions.unshift(
                     { name: `Open "${item.text.substring(0,20)}..."`, key: '↵', run: () => triggerSelection(item) },
@@ -2355,6 +2126,336 @@
         }).join('');
     };
 
+    function showExamSimulator() {
+        const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
+        chrome.storage.local.get(['iitm_quiz_cache', 'iitm_scores'], (storageData) => {
+            const cache = (storageData.iitm_quiz_cache || {})[courseName] || {};
+            const savedScores = (storageData.iitm_scores || {})[courseName] || { assignments: [], quizzes: [] };
+            
+            const modal = document.createElement('div');
+            modal.id = 'iitm-exam-simulator';
+            modal.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                width: 500px; background: rgba(18, 18, 18, 0.98); 
+                border: 1px solid rgba(255,255,255,0.12); border-radius: 24px;
+                box-shadow: 0 40px 120px rgba(0,0,0,1); color: white;
+                padding: 30px; z-index: 100000; font-family: 'Inter', system-ui, sans-serif;
+                backdrop-filter: blur(25px); animation: spotlightIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            `;
+            
+            const scraperLogs = [];
+            const scrapeScores = () => {
+                const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p, .completion-status, .graded-prog-completion, td'));
+                const assignmentScores = [...savedScores.assignments];
+                const quizScores = [...savedScores.quizzes];
+                
+                rawElements.forEach(el => {
+                    const text = el.innerText.trim();
+                    const scoreMatch = text.match(/(?:Score:\s*|Graded:\s*|[\w\s]+-\s*)(\d+\.?\d*)\s*(?:\/\s*(\d+\.?\d*))?/i);
+                    const percentMatch = text.match(/(\d+\.?\d*)%/);
+
+                    if (scoreMatch) {
+                        let val = parseFloat(scoreMatch[1]);
+                        const total = scoreMatch[2] ? parseFloat(scoreMatch[2]) : null;
+                        if (total) val = (val / total) * 100;
+                        if (val >= 0) {
+                            const isQuiz = text.toLowerCase().includes('quiz') || text.length < 5;
+                            const isNew = !assignmentScores.includes(val) && !quizScores.includes(val);
+                            if (isNew) {
+                                if (isQuiz) quizScores.push(val);
+                                else assignmentScores.push(val);
+                            }
+                            if (scraperLogs.length < 5) scraperLogs.push(`[${isQuiz?'Q':'A'}] Found ${val.toFixed(1)}: "${text.substring(0,25)}..."`);
+                        }
+                    } else if (percentMatch) {
+                        const val = parseFloat(percentMatch[1]);
+                        if (!assignmentScores.includes(val) && !quizScores.includes(val)) {
+                             assignmentScores.push(val);
+                             if (scraperLogs.length < 5) scraperLogs.push(`[A] Found ${val.toFixed(1)}%: "${text.substring(0,25)}..."`);
+                        }
+                    }
+                });
+                return { assignmentScores, quizScores };
+            };
+
+            const { assignmentScores, quizScores } = scrapeScores();
+            
+            const avgA = assignmentScores.length > 0 ? (assignmentScores.reduce((a,b) => a+b, 0) / assignmentScores.length) : (cache.avgA || 100);
+            const q1 = cache.q1 !== undefined ? cache.q1 : (quizScores[0] || 0);
+            const q2 = cache.q2 !== undefined ? cache.q2 : (quizScores[1] || 0);
+            const q3 = cache.q3 !== undefined ? cache.q3 : (quizScores[2] || 0);
+            const offset = cache.offset || 0;
+        
+        modal.innerHTML = `
+            <style>
+                #iitm-exam-simulator input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 5px; background: rgba(255,255,255,0.1); outline: none; }
+                #iitm-exam-simulator input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #db2777; cursor: pointer; border: 2px solid white; }
+                .threshold-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px; }
+                .threshold-val { font-weight: 800; color: #db2777; }
+                .sim-label { font-size: 10px; opacity: 0.5; text-transform:uppercase; margin-bottom:4px; }
+                .sim-box { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border:1px solid rgba(255,255,255,0.05); }
+                .sim-input-row { margin-bottom: 12px; }
+                .sim-input-row:last-child { margin-bottom: 0; }
+            </style>
+            <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:20px;">
+                <div>
+                    <div style="font-size: 22px; font-weight: 950; color:#db2777; letter-spacing:-0.5px;">🎓 Exam Simulator</div>
+                    <div style="font-size: 11px; opacity: 0.5; margin-top:2px;">Strategic Course Outcome Projection</div>
+                </div>
+                <div id="sim-status-badge" style="background:rgba(219,39,119,0.1); color:#db2777; font-size:9px; font-weight:900; padding:4px 8px; border-radius:8px; border:1px solid rgba(219,39,119,0.3);">BETA 2.1</div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:20px;">
+                <div class="sim-box">
+                    <div class="sim-label">Assignment Avg</div>
+                    <div style="font-size: 18px; font-weight: 800;" id="disp-avg">${avgA.toFixed(1)}%</div>
+                </div>
+                <div class="sim-box">
+                    <div class="sim-label">Current Total (T)</div>
+                    <div style="font-size: 18px; font-weight: 800; color: #db2777;" id="disp-total">---</div>
+                </div>
+            </div>
+            
+            <div style="display:flex; gap:15px; margin-bottom:20px;">
+                <div style="flex: 1.5; background:rgba(255,255,255,0.02); padding:15px; border-radius:16px; border:1px solid rgba(255,255,255,0.05);">
+                    <div style="font-size:10px; font-weight:700; margin-bottom:12px; opacity:0.8; display:flex; align-items:center; gap:6px;">
+                        <span>🎮</span> SCORES (OUT OF 100)
+                    </div>
+                    
+                    <div class="sim-input-row">
+                        <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+                            <span>Quiz 1</span> <span id="val-q1" style="font-weight:900; color:#db2777;">${q1}</span>
+                        </div>
+                        <input type="range" id="sim-q1" min="0" max="100" value="${q1}">
+                    </div>
+
+                    <div class="sim-input-row">
+                        <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+                            <span>Quiz 2</span> <span id="val-q2" style="font-weight:900; color:#db2777;">${q2}</span>
+                        </div>
+                        <input type="range" id="sim-q2" min="0" max="100" value="${q2}">
+                    </div>
+
+                    <div class="sim-input-row">
+                        <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+                            <span>Quiz 3</span> <span id="val-q3" style="font-weight:900; color:#db2777;">${q3}</span>
+                        </div>
+                        <input type="range" id="sim-q3" min="0" max="100" value="${q3}">
+                    </div>
+
+                    <div class="sim-input-row" style="padding-top:8px; border-top:1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+                            <span>OPPE/NPPE/Offset</span> <span id="val-offset" style="font-weight:900; color:#db2777;">${offset}</span>
+                        </div>
+                        <input type="range" id="sim-offset" min="0" max="30" value="${offset}">
+                    </div>
+                </div>
+
+                <div style="flex: 1; background:rgba(219,39,119,0.05); padding:15px; border-radius:16px; border:1px solid rgba(219,39,119,0.15);">
+                    <div style="font-size:10px; font-weight:700; margin-bottom:12px; opacity:0.8; color:#db2777;">THRESHOLD ANALYSIS</div>
+                    <div class="threshold-row"><span>S Grade (90+)</span> <span class="threshold-val" id="need-s">---</span></div>
+                    <div class="threshold-row"><span>A Grade (80+)</span> <span class="threshold-val" id="need-a" style="color:#7e22ce;">---</span></div>
+                    <div class="threshold-row"><span>B Grade (70+)</span> <span class="threshold-val" id="need-b" style="color:#2563eb;">---</span></div>
+                    <div class="threshold-row"><span>Pass (40+)</span> <span class="threshold-val" id="need-pass" style="color:#22c55e;">---</span></div>
+                    
+                    <div style="margin-top:15px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); text-align:center;">
+                        <div style="font-size:9px; opacity:0.5; text-transform:uppercase; margin-bottom:4px;">Eligibility</div>
+                        <div id="elig-status" style="font-size:12px; font-weight:900; color:#fff;">---</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="grade-summary" style="padding:15px; border-radius:12px; background:linear-gradient(135deg, rgba(219,39,119,0.15), rgba(126,34,206,0.15)); border:1px solid rgba(219,39,119,0.2); text-align:center; margin-bottom:15px;">
+                <div style="font-size:10px; opacity:0.6; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Probability Matrix</div>
+                <div id="prob-status" style="font-size:14px; font-weight:800; color:#fff;">Evaluating path...</div>
+            </div>
+
+            <div id="scraper-diagnostics" style="background:rgba(0,0,0,0.3); border-radius:12px; padding:10px; border:1px solid rgba(255,255,255,0.05);">
+                <div style="font-size:9px; opacity:0.4; text-transform:uppercase; font-weight:800; margin-bottom:6px; display:flex; justify-content:space-between;">
+                    <span>🔎 Scraper Diagnostics</span>
+                    <span style="color:#db2777;">LIVE</span>
+                </div>
+                <div id="diag-logs" style="font-family:monospace, monospace; font-size:9px; color:#888; line-height:1.4;">
+                    ${scraperLogs.length > 0 ? scraperLogs.map(log => `<div>${log}</div>`).join('') : '<div style="opacity:0.5;">Searching for scores on page...</div>'}
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button id="close-sim" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:12px; padding:10px; cursor:pointer; font-size:12px; font-weight:700;">Close</button>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const update = () => {
+            const sq1 = Number(document.getElementById('sim-q1').value);
+            const sq2 = Number(document.getElementById('sim-q2').value);
+            const sq3 = Number(document.getElementById('sim-q3').value);
+            const soff = Number(document.getElementById('sim-offset').value);
+            
+            document.getElementById('val-q1').innerText = sq1;
+            document.getElementById('val-q2').innerText = sq2;
+            document.getElementById('val-q3').innerText = sq3;
+            document.getElementById('val-offset').innerText = soff;
+            
+            // BEST 2 of 3 Logic
+            const sorted = [sq1, sq2, sq3].sort((a,b) => b-a);
+            const bestTwoAvg = (sorted[0] + sorted[1]) / 2;
+            
+            // FORMULA (Standard IITM): T = 0.2*A + 0.3*BestAvg + Offset
+            const currentT = (avgA * 0.2) + (bestTwoAvg * 0.3) + soff;
+            document.getElementById('disp-total').innerText = currentT.toFixed(1);
+            
+            const calculateNeeded = (target) => {
+                const needed = (target - currentT) / 0.5;
+                if (needed <= 0) return "Achieved 🎉";
+                if (needed > 100) return "Impossible ❌";
+                return Math.ceil(needed) + "%";
+            };
+            
+            document.getElementById('need-s').innerText = calculateNeeded(90);
+            document.getElementById('need-a').innerText = calculateNeeded(80);
+            document.getElementById('need-b').innerText = calculateNeeded(70);
+            document.getElementById('need-pass').innerText = calculateNeeded(40);
+            
+            // Eligibility
+            const elig = document.getElementById('elig-status');
+            const avgQ = (sq1 + sq2 + sq3) / 3;
+            if (avgQ < 35 && avgA < 40) {
+                 elig.innerText = "❌ INELIGIBLE";
+                 elig.style.color = "#ef4444";
+            } else {
+                 elig.innerText = "✅ QUALIFIED";
+                 elig.style.color = "#22c55e";
+            }
+
+            const needS = (90 - currentT) / 0.5;
+            const probStatus = document.getElementById('prob-status');
+            if (needS <= 40) probStatus.innerText = "🔥 HIGH PROBABILITY S";
+            else if (needS <= 70) probStatus.innerText = "✨ ON TRACK FOR S";
+            else if (needS <= 100) probStatus.innerText = "⚡ CLUTCH NEEDED FOR S";
+            else if ((80 - currentT) / 0.5 <= 100) probStatus.innerText = "🎯 AIM FOR A-GRADE";
+            else if ((70 - currentT) / 0.5 <= 100) probStatus.innerText = "🤝 SECURE B-GRADE";
+            else probStatus.innerText = "🌱 FOCUS ON PASSING";
+
+            // Save state
+            const newCache = { ...cache, q1: sq1, q2: sq2, q3: sq3, offset: soff, avgA };
+            const allCaches = (storageData.iitm_quiz_cache || {});
+            allCaches[courseName] = newCache;
+            chrome.storage.local.set({ iitm_quiz_cache: allCaches });
+        };
+
+        const inputs = ['sim-q1', 'sim-q2', 'sim-q3', 'sim-offset'];
+        inputs.forEach(id => document.getElementById(id).oninput = update);
+        
+        document.getElementById('close-sim').onclick = () => modal.remove();
+        
+        update();
+
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                modal.remove();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+        });
+    }
+
+    function syncCurrentPageScores(silent = true) {
+        const courseName = (document.querySelector('.course-title, .course-header h1, h2.title')?.innerText || 'Active Content').trim().substring(0, 30);
+        chrome.storage.local.get('iitm_scores', (data) => {
+            const current = (data.iitm_scores || {})[courseName] || { assignments: [], quizzes: [] };
+            const rawElements = Array.from(document.querySelectorAll('.assignment-text, .score-item, .qt-feedback .correct, .courses-assignment p, .card-body p, .completion-status, .graded-prog-completion'));
+            
+            let updated = false;
+            rawElements.forEach(el => {
+                const text = el.innerText;
+                const scoreMatch = text.match(/(?:Score:\s*|Graded:\s*|[\w\s]+-\s*)(\d+\.?\d*)\s*(?:\/\s*(\d+\.?\d*))?/i);
+                if (scoreMatch) {
+                    let val = parseFloat(scoreMatch[1]);
+                    const total = scoreMatch[2] ? parseFloat(scoreMatch[2]) : null;
+                    if (total) val = (val / total) * 100;
+                    if (!current.assignments.includes(val) && !current.quizzes.includes(val)) {
+                        if (text.toLowerCase().includes('quiz')) current.quizzes.push(val);
+                        else current.assignments.push(val);
+                        updated = true;
+                    }
+                }
+            });
+
+            if (updated) {
+                const all = (data.iitm_scores || {});
+                all[courseName] = current;
+                chrome.storage.local.set({ iitm_scores: all }, () => {
+                    if (!silent) showToast('Scores Synched');
+                });
+            } else if (!silent) {
+                showToast('No new scores found on page');
+            }
+        });
+    }
+
+    function showFeatureTour() {
+        const modal = document.createElement('div');
+        modal.id = 'iitm-feature-tour';
+        modal.style.cssText = `
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 520px; background: rgba(15, 15, 15, 0.98); 
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 28px;
+            box-shadow: 0 50px 150px rgba(0,0,0,1); color: white;
+            padding: 40px; z-index: 100005; font-family: 'Inter', sans-serif;
+            backdrop-filter: blur(30px); animation: spotlightIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        `;
+        
+        modal.innerHTML = `
+            <div style="text-align:center; margin-bottom:30px;">
+                <div style="font-size: 10px; font-weight: 800; color: #db2777; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">Academic Engine v2.0</div>
+                <div style="font-size: 28px; font-weight: 950; letter-spacing: -1px;">Unlock Your Full Potential</div>
+            </div>
+            
+            <div style="display:flex; flex-direction:column; gap:24px;">
+                <div style="display:flex; gap:18px; align-items:start;">
+                    <div style="background:rgba(219,39,119,0.1); color:#db2777; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(219,39,119,0.2);">🎓</div>
+                    <div>
+                        <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Exam Simulator (⌘ K → P)</div>
+                        <div style="font-size:12px; opacity:0.6; line-height:1.6;">Simulate your future performance. See exactly what you need in Quizzes and Finals to maintain your S-Grade. Includes probability heatmaps and live T-Score tracking.</div>
+                    </div>
+                </div>
+                
+                <div style="display:flex; gap:18px; align-items:start;">
+                    <div style="background:rgba(220, 38, 38, 0.1); color:#dc2626; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(220,38,38,0.2);">🚨</div>
+                    <div>
+                        <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Deadline HUD (Automated)</div>
+                        <div style="font-size:12px; opacity:0.6; line-height:1.6;">Never miss a submission. A persistent, urgent HUD appears in the bottom-right when a deadline is within 48 hours for any currently open course unit.</div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:18px; align-items:start;">
+                    <div style="background:rgba(234, 179, 8, 0.1); color:#eab308; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:22px; border:1px solid rgba(234,179,8,0.2);">⚡</div>
+                    <div>
+                        <div style="font-weight:800; font-size:16px; margin-bottom:4px; color:#fff;">Universal Spotlight (⌘ K)</div>
+                        <div style="font-size:12px; opacity:0.6; line-height:1.6;">Instant command palette for everything. Quick jumping: Press <b>H</b> for Home Dashboard or <b>S</b> for Score Checker directly from the menu.</div>
+                    </div>
+                </div>
+            </div>
+
+            <button id="close-tour" style="width:100%; height:48px; background:#db2777; border:none; border-radius:16px; color:white; font-weight:800; margin-top:35px; cursor:pointer; font-size:15px; transition:0.3s; box-shadow: 0 10px 40px rgba(219,39,119,0.3);">Got it, let's crush it!</button>
+            <div style="text-align:center; margin-top:15px; font-size:10px; opacity:0.4;">Built for IIT Madras Scholars • Press ESC to close</div>
+        `;
+        
+        document.body.appendChild(modal);
+        document.getElementById('close-tour').onclick = () => modal.remove();
+        
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                modal.remove();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+    }
+
     // Auto-Loader loop (Reduced frequency for site speed)
     setInterval(() => {
         setupSpotlightListeners();
@@ -2366,6 +2467,11 @@
         injectDeadlineOS();
         injectScoreCheckerTools(); 
         autoCloseSidebar();
+        
+        // AUTO-SYNC SCORES
+        if (window.location.href.includes('course')) {
+             syncCurrentPageScores();
+        }
     }, 2500);
 
     // Global Trigger for Bulk Export
