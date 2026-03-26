@@ -899,6 +899,12 @@
 
             console.log(`IITM Scraper: Consolidating ${forms.length} courses...`);
             
+            // Create a temporary status indicator
+            const statusToast = document.createElement('div');
+            statusToast.style.cssText = "position:fixed; top:20px; right:20px; background:#000; color:#fff; padding:15px; border-radius:10px; z-index:10001; font-family:sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.5);";
+            statusToast.innerHTML = `📡 <b>Exporting All:</b> Starting...`;
+            document.body.appendChild(statusToast);
+
             let consolidatedMarkdown = `# IITM Score Checker - Consolidated Report\n\n`;
             consolidatedMarkdown += `> **Generated on:** ${new Date().toLocaleString()}\n`;
             consolidatedMarkdown += `> **Course Context:** IITM Degree\n\n`;
@@ -914,12 +920,26 @@
                 const courseCode = row.querySelector('td:nth-child(3)')?.innerText.trim() || 'Unknown';
                 const totalScore = row.querySelector('td:nth-child(4)')?.innerText.trim() || 'N/A';
                 
+                statusToast.innerHTML = `📡 <b>Exporting All:</b> Fetching ${courseCode} (${i+1}/${forms.length})...`;
+                
                 consolidatedMarkdown += `## [${i+1}] ${courseCode}\n`;
                 consolidatedMarkdown += `**Total Score:** \`${totalScore}\`\n\n`;
 
                 try {
-                    const formData = new FormData(form);
-                    const response = await fetch(form.action, { method: 'POST', body: formData });
+                    // Use URLSearchParams for generic application/x-www-form-urlencoded compatibility
+                    const params = new URLSearchParams();
+                    for (const pair of new FormData(form)) {
+                        params.append(pair[0], pair[1]);
+                    }
+
+                    const response = await fetch(form.action, { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString() 
+                    });
+
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
                     const html = await response.text();
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(html, 'text/html');
@@ -927,16 +947,22 @@
                     const table = doc.querySelector('table');
                     if (table) {
                         const tableClone = table.cloneNode(true);
+                        // Hide view icons in the nested report
+                        tableClone.querySelectorAll('i, button, .fa-eye').forEach(el => el.remove());
                         processNode(tableClone);
                         consolidatedMarkdown += turndownService.turndown(tableClone.outerHTML) + '\n\n';
                     } else {
-                        consolidatedMarkdown += `*Detailed scores not available.*\n\n`;
+                        consolidatedMarkdown += `*Detailed scores not available for this course.*\n\n`;
                     }
                 } catch (e) {
-                    consolidatedMarkdown += `*Failed to fetch details for this course.*\n\n`;
+                    console.error(`Scrape failed for ${courseCode}:`, e);
+                    consolidatedMarkdown += `*Failed to fetch details for ${courseCode}: ${e.message}*\n\n`;
                 }
                 consolidatedMarkdown += '---\n\n';
             }
+
+            statusToast.innerHTML = `✅ <b>Export Complete!</b> Saving file...`;
+            setTimeout(() => statusToast.remove(), 2000);
 
             markdown = consolidatedMarkdown;
             finalizeExport();

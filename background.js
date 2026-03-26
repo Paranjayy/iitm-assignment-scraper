@@ -176,7 +176,7 @@ function executeScaper(tabId, mode = 'single', title = null) {
       }).then(() => {
         chrome.scripting.executeScript({
           target: { tabId: tabId },
-          files: ['scraper.js']
+          files: ['scripts/scraper.js']
         });
       });
     }
@@ -188,7 +188,7 @@ async function setupOffscreen() {
   if (existing) return;
   
   await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
+    url: 'docs/offscreen.html',
     reasons: ['DOM_SCRAPING'],
     justification: 'Generate ZIP file for course export'
   });
