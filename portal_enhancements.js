@@ -1193,13 +1193,15 @@
                     }
                     if (!item.el) return;
 
-                    // If the element is still physically in the DOM tree, just click it natively!
-                    if (document.body.contains(item.el)) {
+                    // If the element is technically in the DOM but Angular hid it (offsetWidth === 0) or destroyed it, we must force-open the sidebar
+                    const isVisible = document.body.contains(item.el) && item.el.offsetWidth > 0;
+
+                    if (isVisible) {
                         (item.el.closest('button') || item.el).click();
                         if (!item.isSub) setTimeout(() => item.el.querySelector('.mat-expansion-indicator')?.click(), 50);
                     } else {
-                        // Fallback: If Angular erased the sidebar, we must re-open it to orchestrate the route change natively!
-                        const leftToggle = document.querySelector('.hide-outline-btn');
+                        // Fallback: If Angular erased or hid the sidebar, we must re-open it to orchestrate the route change natively!
+                        const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu, .mobile-menu button, button[aria-label="Menu"]');
                         if (leftToggle) leftToggle.click();
 
                         setTimeout(() => {
