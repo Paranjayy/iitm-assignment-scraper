@@ -40,6 +40,7 @@ Say goodbye to draconian text restrictions on the IITM Code Editors!
 - **Exhaustive Capture**: Pinpoints Problem statements, IDE Template Code, Public/Private Test Cases, Verified Solutions, and your exact Submissions across locked and unlocked states.
 - **Bulk Export Generator**: Select multiple entire unit modules inside Spotlight and trigger the "Bulk Export All Weeks" command `⌘ B` to dynamically generate a clean ZIP archive of your entire semester.
 - **AI Integration**: Instantly pipeline your active GrPA context to Claude, ChatGPT, or Gemini with pre-injected analytical prompts.
+- **Score Checker Gateway**: Direct injection and instant navigation to the official IITM Score Checker utility metrics to monitor aggregate term performance.
 
 ## ⌨️ Global Shortcuts
 
