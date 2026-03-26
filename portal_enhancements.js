@@ -1208,7 +1208,7 @@
                 
                 lastSelectedIndex = currentMatches.indexOf(item);
                 localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
-                renderResults(window.cachedItems || [], true);
+                renderResults(cachedItems || [], true);
 
                 // Option: If NOT clicking a checkbox/meta area, just navigate? 
                 // User's request suggests they WANT selection for bulk, so we toggle.
