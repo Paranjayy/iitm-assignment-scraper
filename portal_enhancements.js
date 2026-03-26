@@ -2259,8 +2259,8 @@
                     <div class="threshold-row"><span>Pass (40+)</span> <span class="threshold-val" id="need-pass" style="color:#22c55e;">---</span></div>
                     
                     <div style="margin-top:15px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); text-align:center;">
-                        <div style="font-size:9px; opacity:0.5; text-transform:uppercase; margin-bottom:4px;">Eligibility</div>
-                        <div id="elig-status" style="font-size:12px; font-weight:900; color:#fff;">---</div>
+                        <div style="font-size:9px; opacity:0.5; text-transform:uppercase; margin-bottom:4px;">Strategy</div>
+                        <div id="strat-status" style="font-size:12px; font-weight:900; color:#fff;">COURSE OPTIMIZED</div>
                     </div>
                 </div>
             </div>
@@ -2318,17 +2318,6 @@
             document.getElementById('need-b').innerText = calculateNeeded(70);
             document.getElementById('need-pass').innerText = calculateNeeded(40);
             
-            // Eligibility
-            const elig = document.getElementById('elig-status');
-            const avgQ = (sq1 + sq2 + sq3) / 3;
-            if (avgQ < 35 && avgA < 40) {
-                 elig.innerText = "❌ INELIGIBLE";
-                 elig.style.color = "#ef4444";
-            } else {
-                 elig.innerText = "✅ QUALIFIED";
-                 elig.style.color = "#22c55e";
-            }
-
             const needS = (90 - currentT) / 0.5;
             const probStatus = document.getElementById('prob-status');
             if (needS <= 40) probStatus.innerText = "🔥 HIGH PROBABILITY S";
