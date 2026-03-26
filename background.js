@@ -95,10 +95,10 @@ function unlockPage(tabId) {
                         ta.removeAttribute('readonly');
                         ta.readOnly = false;
                         ta.disabled = false;
-                        // NUKING site-side blockers
-                        ta.addEventListener('copy', e => e.stopPropagation(), true);
-                        ta.addEventListener('paste', e => e.stopPropagation(), true);
-                        ta.addEventListener('cut', e => e.stopPropagation(), true);
+                        // NUKING site-side blockers ONLY during bubbling so AceEditor still gets them
+                        ta.addEventListener('copy', e => e.stopPropagation(), false);
+                        ta.addEventListener('paste', e => e.stopPropagation(), false);
+                        ta.addEventListener('cut', e => e.stopPropagation(), false);
                         ta.style.pointerEvents = 'auto';
                         ta.style.opacity = '1';
                     });
@@ -106,15 +106,11 @@ function unlockPage(tabId) {
                     el.classList.remove('ace_readonly');
                     el.classList.remove('readonly');
                 });
-                
-                // Specifically White-list Keyboard Shortcuts at the highest level
-                const shortcuts = ['v', 'c', 'x', 'z', 'y', 'a'];
-                window.addEventListener('keydown', (e) => {
-                    const isMeta = e.ctrlKey || e.metaKey;
-                    if (isMeta && shortcuts.includes(e.key.toLowerCase())) {
-                        e.stopPropagation();
-                    }
-                }, true);
+
+                // Obliterate Site-Wide Right-Click Blockers
+                document.oncontextmenu = null;
+                if (document.body) document.body.oncontextmenu = null;
+                window.addEventListener('contextmenu', (e) => e.stopPropagation(), true);
             };
 
             doUnlock();

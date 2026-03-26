@@ -440,20 +440,23 @@
         const arrowContainer = document.querySelector('.hide-outline-btn');
         const isCollapsed = arrowContainer?.innerHTML?.includes('rotate(180deg)'); // heuristic
         if (leftToggle && !isCollapsed && location.href.includes('/courses/')) {
-            // Delay closing by 3000ms to let page finish rendering
-            setTimeout(() => {
-                const innerToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
-                const innerContainer = document.querySelector('.hide-outline-btn');
-                const innerCollapsed = innerContainer?.innerHTML?.includes('rotate(180deg)');
-                
-                if (innerToggle && !innerCollapsed && !isSpotlightOpen) {
-                    // CRITICAL: IITM destroys the DOM when the sidebar closes. 
-                    // We must force Spotlight to aggressively read and cache the DOM into memory BEFORE closing!
+            // Keep polling until sidebar DOM is actually populated before caching/closing
+            let waitAttempts = 0;
+            const delayClose = setInterval(() => {
+                const subitems = document.querySelectorAll('.units__subitems');
+                // Give it up to 10s to render, or stop when we have enough items
+                if (subitems.length > 20 || waitAttempts > 10) {
+                    clearInterval(delayClose);
+                    // Force Spotlight to cache the DOM into memory BEFORE closing!
                     if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
                     
-                    innerToggle.click();
+                    const innerToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
+                    const innerContainer = document.querySelector('.hide-outline-btn');
+                    const innerCollapsed = innerContainer?.innerHTML?.includes('rotate(180deg)');
+                    if (innerToggle && !innerCollapsed && !isSpotlightOpen) innerToggle.click();
                 }
-            }, 3000);
+                waitAttempts++;
+            }, 1000);
             
             sidebarClosedThisSession = true;
             return;
@@ -781,7 +784,6 @@
             </div>
             <div class="focus-bar-right">
                 <button id="unlock-code-btn" style="margin-right: 8px; background: #c2185b; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;" title="Unlock Native Copy/Paste/Right-Click">🔓 Unlock</button>
-                <button id="copy-code-btn" style="margin-right: 8px; background: #1976d2; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;">📋 Copy Code</button>
                 <button id="toggle-ref-btn" style="margin-right: 8px; background: #2e7d32; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;">📖 Ref</button>
                 <button id="reset-boilerplate-btn" style="background: #a0332d; border-radius:4px; border:none; color:white; padding:4px 8px; font-size:12px; cursor:pointer;">🔄 Reset</button>
             </div>
@@ -853,24 +855,6 @@
     addGlobalListener('click', '#reset-boilerplate-btn', () => {
         if (confirm('Reset code to original boilerplate?')) {
             document.querySelector('.reset-btn')?.click();
-        }
-    });
-    addGlobalListener('click', '#copy-code-btn', () => {
-        const editor = document.querySelector('.mat-tab-body-active .ace_editor, .right-panel .ace_editor');
-        if (editor) {
-            let code = editor.getAttribute('data-full-code') || editor.querySelector('textarea.ace_text-input')?.value || editor.innerText;
-            if (code) {
-                try {
-                    const ta = document.createElement('textarea');
-                    ta.value = code; ta.style.position = 'fixed'; ta.style.opacity = '0';
-                    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-                    
-                    const btn = document.getElementById('copy-code-btn');
-                    const og = btn.innerHTML;
-                    btn.innerHTML = '✅ Copied!'; btn.style.background = '#4CAF50';
-                    setTimeout(() => { btn.innerHTML = og; btn.style.background = '#1976d2'; }, 2000);
-                } catch(e) {}
-            }
         }
     });
     addGlobalListener('click', '#unlock-code-btn', () => {
