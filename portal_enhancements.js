@@ -2506,32 +2506,59 @@
             let coursesCount = 0;
             let detailHtml = '';
 
+            const quizCache = data.iitm_quiz_cache || {};
+            
             courseKeys.forEach(key => {
                 const courseData = data[key];
                 const scores = courseData.assignments || [];
-                const courseCode = key.replace('iitm_scores_', '');
+                const courseName30 = key.replace('iitm_scores_', '');
+                const sim = quizCache[courseName30]; // Match simulator data by name
                 
-                // Logic: Use Score Checker Total if available (more accurate), else average assignments
-                const avg = courseData.total !== undefined ? courseData.total : (scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0);
-                const sourceLabel = courseData.total !== undefined ? 'Official' : 'Estimated';
+                // Current Avg
+                const currentAvg = courseData.total !== undefined ? courseData.total : (scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0);
                 
-                let gp = 0;
-                let grade = 'U';
-                if (avg >= 90) { gp = 10; grade = 'S'; }
-                else if (avg >= 80) { gp = 9; grade = 'A'; }
-                else if (avg >= 70) { gp = 8; grade = 'B'; }
-                else if (avg >= 60) { gp = 7; grade = 'C'; }
-                else if (avg >= 50) { gp = 6; grade = 'D'; }
-                else if (avg >= 40) { gp = 4; grade = 'E'; }
+                // Project Path (Using Simulator if available)
+                let finalT = currentAvg;
+                let isSimulated = false;
+                
+                if (sim) {
+                    const q = [parseFloat(sim.q1)||0, parseFloat(sim.q2)||0, parseFloat(sim.q3)||0].sort((a,b)=>b-a);
+                    const best2 = (q[0] + q[1]) / 2;
+                    const avgA = parseFloat(sim.avgA) || currentAvg;
+                    const offset = parseFloat(sim.offset) || 0;
+                    // Formula: 10% Assignment + 40% Best-2-Quiz (20 each) + 50% Final (Assuming same as Best2 for path)
+                    finalT = (0.1 * avgA) + (0.4 * best2) + (0.5 * best2) + offset;
+                    isSimulated = true;
+                }
 
-                totalPoints += gp;
+                function getGP(val) {
+                    if (val >= 90) return { gp: 10, g: 'S' };
+                    if (val >= 80) return { gp: 9, g: 'A' };
+                    if (val >= 70) return { gp: 8, g: 'B' };
+                    if (val >= 60) return { gp: 7, g: 'C' };
+                    if (val >= 50) return { gp: 6, g: 'D' };
+                    if (val >= 40) return { gp: 4, g: 'E' };
+                    return { gp: 0, g: 'U' };
+                }
+
+                const currentRes = getGP(currentAvg);
+                const projectedRes = getGP(finalT);
+
+                totalPoints += projectedRes.gp;
                 coursesCount++;
                 
+                const simBadge = isSimulated ? `<span style="background:#db2777; color:#fff; font-size:9px; padding:2px 6px; border-radius:10px; margin-left:8px;">SIMULATED</span>` : '';
+                
                 detailHtml += `
-                    <div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #333;">
-                        <span style="color:#eee; font-weight:bold;">${courseCode}</span>
-                        <span style="color:#aaa;">${sourceLabel}: ${avg.toFixed(1)}</span>
-                        <span style="color:#64FFDA; font-weight:bold;">Grade: ${grade} (${gp})</span>
+                    <div style="display:flex; flex-direction:column; padding:15px; border-bottom:1px solid #222; background:rgba(255,255,255,0.02); margin-bottom:8px; border-radius:12px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="color:#eee; font-weight:bold; font-size:14px;">${courseName30} ${simBadge}</span>
+                            <span style="color:#64FFDA; font-weight:bold; font-size:16px;">${projectedRes.g} (${projectedRes.gp})</span>
+                        </div>
+                        <div style="display:flex; gap:20px; font-size:11px; color:#888;">
+                            <span>Current: ${currentRes.g} (${currentAvg.toFixed(1)})</span>
+                            <span style="color:${isSimulated ? '#db2777' : '#888'}">Potential Path: ${finalT.toFixed(1)}</span>
+                        </div>
                     </div>
                 `;
             });
@@ -2546,10 +2573,10 @@
                         <h2 style="margin:0; font-size:24px; color:#64FFDA;">Global GPA Projector</h2>
                         <button id="close-gpa" style="background:none; border:none; color:#aaa; font-size:24px; cursor:pointer;">&times;</button>
                     </div>
-                    <div style="text-align:center; margin-bottom:30px; padding:20px; background:#1a1a1a; border-radius:10px;">
-                        <div style="font-size:14px; color:#aaa; text-transform:uppercase; letter-spacing:1px;">Estimated Term CGPA</div>
-                        <div style="font-size:48px; font-weight:bold; color:#64FFDA; margin:10px 0;">${cgpa}</div>
-                        <div style="font-size:16px; color:#888;">Based on ${coursesCount} active courses</div>
+                    <div style="text-align:center; margin-bottom:30px; padding:20px; background:#1a1a1a; border-radius:20px; border:1px solid #333;">
+                        <div style="font-size:12px; color:#aaa; text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Projected Term CGPA</div>
+                        <div style="font-size:54px; font-weight:950; color:#64FFDA; margin:0; letter-spacing:-2px;">${cgpa}</div>
+                        <div style="font-size:12px; color:#888; margin-top:10px;">Strategic path based on current performance & simulations</div>
                     </div>
                     <div style="max-height:200px; overflow-y:auto; margin-bottom:20px; border-radius:10px; background:#080808;">
                         ${detailHtml}
