@@ -435,41 +435,25 @@
     const autoCloseSidebar = () => {
         if (sidebarClosedThisSession || autoCloseAttempts > 20 || isSpotlightOpen) return;
 
-        // Massive Desktop Sidebar
-        const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
-        const arrowContainer = document.querySelector('.hide-outline-btn');
-        const isCollapsed = arrowContainer?.innerHTML?.includes('rotate(180deg)'); // heuristic
-        if (leftToggle && !isCollapsed && location.href.includes('/courses/')) {
+        if (location.href.includes('/courses/')) {
+            sidebarClosedThisSession = true;
+
             // Wait an absolute fixed 4 seconds to guarantee Angular downloads/hydrates all the sidebar text strings before caching
             setTimeout(() => {
-                // Force Spotlight to cache the DOM into memory BEFORE closing!
                 if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
                 
-                const innerToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
-                const innerContainer = document.querySelector('.hide-outline-btn');
-                const innerCollapsed = innerContainer?.innerHTML?.includes('rotate(180deg)');
-                if (innerToggle && !innerCollapsed && !isSpotlightOpen) innerToggle.click();
+                // Desktop Sidebar
+                const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
+                const isCollapsed = document.querySelector('.hide-outline-btn')?.innerHTML?.includes('rotate(180deg)');
+                if (leftToggle && !isCollapsed && !isSpotlightOpen) leftToggle.click();
+                
+                // Mobile Sidebar
+                const sidenav = document.querySelector('mat-sidenav');
+                if (sidenav && (sidenav.classList.contains('mat-drawer-opened') || sidenav.getAttribute('opened') === 'true' || sidenav.offsetWidth > 100)) {
+                    const mobileToggle = document.querySelector('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
+                    if (mobileToggle && !isSpotlightOpen) mobileToggle.click();
+                }
             }, 4000);
-            
-            sidebarClosedThisSession = true;
-            return;
-        }
-        
-        const sidenav = document.querySelector('mat-sidenav');
-        if (!sidenav) return;
-        
-        const isOpened = sidenav.classList.contains('mat-drawer-opened') || 
-                         sidenav.getAttribute('opened') === 'true' ||
-                         (sidenav.offsetWidth > 100);
-
-        if (isOpened && location.href.includes('/courses/')) {
-            const toggle = document.querySelector('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
-            if (toggle) {
-                toggle.click();
-                sidebarClosedThisSession = true;
-            }
-        } else if (location.href.includes('/courses/')) {
-            sidebarClosedThisSession = true;
         }
         autoCloseAttempts++;
     };

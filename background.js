@@ -103,21 +103,32 @@ function unlockPage(tabId) {
                     el.classList.remove('readonly');
                 });
                 
-                // Combat Anti-Cheat Keydown Monitors ONLY for Copy. 
-                // Let native Cut/Paste/Undo/Redo organically drop to AceEditor!
-                window.addEventListener('keydown', async (e) => {
-                    const isMeta = e.ctrlKey || e.metaKey;
-                    if (isMeta && e.key.toLowerCase() === 'c') {
-                        const activeEl = document.activeElement;
-                        if (activeEl && activeEl.classList.contains('ace_text-input')) {
-                            try {
-                                await navigator.clipboard.writeText(activeEl.value);
-                            } catch(err) {
-                                document.execCommand('copy');
-                            }
-                            // We manually handled Copy, so block Angular from complaining
-                            e.stopPropagation();
-                        }
+                // True Native Cut/Copy/Paste via internal AceEditor payload mapping
+                window.addEventListener('copy', (e) => {
+                    const activeEl = document.activeElement;
+                    if (activeEl && activeEl.classList.contains('ace_text-input')) {
+                        e.clipboardData.setData('text/plain', activeEl.value);
+                        e.preventDefault(); e.stopPropagation();
+                    }
+                }, true);
+                
+                window.addEventListener('cut', (e) => {
+                    const activeEl = document.activeElement;
+                    if (activeEl && activeEl.classList.contains('ace_text-input')) {
+                        e.clipboardData.setData('text/plain', activeEl.value);
+                        activeEl.value = '';
+                        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+                        e.preventDefault(); e.stopPropagation();
+                    }
+                }, true);
+                
+                window.addEventListener('paste', (e) => {
+                    const activeEl = document.activeElement;
+                    if (activeEl && activeEl.classList.contains('ace_text-input')) {
+                        const text = e.clipboardData.getData('text/plain');
+                        activeEl.value = activeEl.value.substring(0, activeEl.selectionStart) + text + activeEl.value.substring(activeEl.selectionEnd);
+                        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+                        e.preventDefault(); e.stopPropagation();
                     }
                 }, true);
 
