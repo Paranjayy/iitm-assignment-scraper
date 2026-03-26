@@ -442,10 +442,18 @@
             let waitAttempts = 0;
             const delayClose = setInterval(() => {
                 const subitems = document.querySelectorAll('.units__subitems');
-                // Ensure there are multiple elements AND there's actual text hydrated inside them
-                const isFullyLoaded = subitems.length > 20 && subitems[0].innerText.trim().length > 5;
+                const isGhostLoaderActive = document.querySelector('.ghost-loader') !== null;
+                const isSpinnerActive = document.querySelector('.spinner-overlay') !== null;
+                const isGetItemsReady = typeof window.__iitm_get_items === 'function';
                 
-                if (isFullyLoaded || waitAttempts > 25) { // up to 12.5 seconds max
+                // Ensure there are multiple elements AND there's actual text hydrated inside them AND main page is fully loaded AND cache functions are hydrated
+                const isFullyLoaded = subitems.length > 20 && 
+                                      subitems[0].innerText.trim().length > 5 && 
+                                      isGetItemsReady && 
+                                      !isGhostLoaderActive && 
+                                      !isSpinnerActive;
+                
+                if (isFullyLoaded || waitAttempts > 40) { // wait up to 20 seconds
                     clearInterval(delayClose);
                     if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
                     
