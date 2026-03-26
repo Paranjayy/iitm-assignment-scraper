@@ -2641,9 +2641,48 @@
         }
     }, 2500);
 
+    // 🏆 UNIVERSAL BACKGROUND SYNC (The "Automatic" Engine)
+    // Silently fetches and parses the Score Checker without navigating there.
+    function universalBackgroundSync() {
+        if (window.location.hostname.includes('score-checker')) return; 
+
+        fetch('https://score-checker-379619009600.asia-south1.run.app/course_wise')
+            .then(res => res.text())
+            .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const rows = doc.querySelectorAll('table tr');
+                    let foundAny = false;
+                    
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length < 4) return;
+                        const courseCode = cells[2]?.innerText.trim();
+                        const totalScore = parseFloat(cells[3]?.innerText.trim());
+                        
+                        if (courseCode && !isNaN(totalScore)) {
+                            foundAny = true;
+                            const key = `iitm_scores_${courseCode}`;
+                            chrome.storage.local.get(key, (data) => {
+                                const current = data[key] || { assignments: [], quizzes: [], total: 0 };
+                                if (current.total !== totalScore) {
+                                    current.total = totalScore;
+                                    chrome.storage.local.set({ [key]: current });
+                                }
+                            });
+                        }
+                    });
+                    
+                    if (foundAny) console.log('IITM Engine: Universal Sync Successful (Background)');
+            })
+            .catch(e => console.log('IITM Engine: Universal Sync (Background) offline or session expired.'));
+    }
+
+    // Run universal sync once on load, then every 30 mins
+    universalBackgroundSync();
+    setInterval(universalBackgroundSync, 30 * 60 * 1000); 
+
     // Global Trigger for Bulk Export
     window.addEventListener('iitm-trigger-bulk-export', bulkScrapeAll);
-
-
 })();
 
