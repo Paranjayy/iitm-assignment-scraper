@@ -440,23 +440,16 @@
         const arrowContainer = document.querySelector('.hide-outline-btn');
         const isCollapsed = arrowContainer?.innerHTML?.includes('rotate(180deg)'); // heuristic
         if (leftToggle && !isCollapsed && location.href.includes('/courses/')) {
-            // Keep polling until sidebar DOM is actually populated before caching/closing
-            let waitAttempts = 0;
-            const delayClose = setInterval(() => {
-                const subitems = document.querySelectorAll('.units__subitems');
-                // Give it up to 10s to render, or stop when we have enough items
-                if (subitems.length > 20 || waitAttempts > 10) {
-                    clearInterval(delayClose);
-                    // Force Spotlight to cache the DOM into memory BEFORE closing!
-                    if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
-                    
-                    const innerToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
-                    const innerContainer = document.querySelector('.hide-outline-btn');
-                    const innerCollapsed = innerContainer?.innerHTML?.includes('rotate(180deg)');
-                    if (innerToggle && !innerCollapsed && !isSpotlightOpen) innerToggle.click();
-                }
-                waitAttempts++;
-            }, 1000);
+            // Wait an absolute fixed 4 seconds to guarantee Angular downloads/hydrates all the sidebar text strings before caching
+            setTimeout(() => {
+                // Force Spotlight to cache the DOM into memory BEFORE closing!
+                if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
+                
+                const innerToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
+                const innerContainer = document.querySelector('.hide-outline-btn');
+                const innerCollapsed = innerContainer?.innerHTML?.includes('rotate(180deg)');
+                if (innerToggle && !innerCollapsed && !isSpotlightOpen) innerToggle.click();
+            }, 4000);
             
             sidebarClosedThisSession = true;
             return;

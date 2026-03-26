@@ -103,26 +103,21 @@ function unlockPage(tabId) {
                     el.classList.remove('readonly');
                 });
                 
-                // Combat Anti-Cheat Keydown Monitors
-                const shortcuts = ['v', 'c', 'x', 'z', 'y', 'a'];
+                // Combat Anti-Cheat Keydown Monitors ONLY for Copy. 
+                // Let native Cut/Paste/Undo/Redo organically drop to AceEditor!
                 window.addEventListener('keydown', async (e) => {
                     const isMeta = e.ctrlKey || e.metaKey;
-                    if (isMeta && shortcuts.includes(e.key.toLowerCase())) {
-                        
-                        // Explicitly handle Native Copy (Cmd+C / Ctrl+C)
-                        if (e.key.toLowerCase() === 'c') {
-                            const activeEl = document.activeElement;
-                            if (activeEl && activeEl.classList.contains('ace_text-input')) {
-                                try {
-                                    // Ace dynamically injects the selected text into the value of this invisible textarea
-                                    await navigator.clipboard.writeText(activeEl.value);
-                                } catch(err) {
-                                    document.execCommand('copy');
-                                }
+                    if (isMeta && e.key.toLowerCase() === 'c') {
+                        const activeEl = document.activeElement;
+                        if (activeEl && activeEl.classList.contains('ace_text-input')) {
+                            try {
+                                await navigator.clipboard.writeText(activeEl.value);
+                            } catch(err) {
+                                document.execCommand('copy');
                             }
+                            // We manually handled Copy, so block Angular from complaining
+                            e.stopPropagation();
                         }
-                        
-                        e.stopPropagation();
                     }
                 }, true);
 
