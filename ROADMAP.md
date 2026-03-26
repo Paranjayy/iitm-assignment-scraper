@@ -6,7 +6,15 @@ This document serves as an ongoing tracker for key details, technical debt, and 
 
 ## 🎯 V2.0 Ambitions
 
-### 1. The Global "Cross-Course" Orchestrator (VCS Scraping)
+### Phase 2: GrPA Analytics & Persistence Engine
+We need a local "Activity Ring" style analytics dashboard for the coding metrics.
+
+*   **Intelligent Timing State**: A formal Timer UI with Play/Pause/Resume functionality that tracks active coding time (Time-On-Task) for each specific GrPA question.
+*   **Submission Telemetry**: Hook into the `Test Run` and `Submit` buttons to track how many times a user clicked submit, what the error outputs were, and the frequency of failures per assignment.
+*   **Difficulty Profiling**: Provide an aggregate score / difficulty metric based on time spent + error count to help pinpoint weak conceptual areas for the user to review.
+*   **Persistent Storage**: Save these activity logs locally inside `chrome.storage.local` associated natively with the Assignment ID (so it persists across reloads).
+
+## Phase 3: The Cross-Course Orchestrator (VCS) Scraping)
 - **Objective:** The user wants to scrape not just a single active course, but *all* active term courses seamlessly (e.g., Graded, GrPA, normal progression content) directly from the dashboard into a massive version-controlled source folder locally.
 - **Technical Requirement:** Needs robust SPA (Single Page Application) sequence logic within `background.js`. The extension must navigate the IITM Dashboard `DOM` elements to fetch active course URLs, silently open a new background tab or iframe for each course, run the `bulkScrapeAll()` logic, zip everything, and compile a massive repo.
 - **Note to Self:** Do *not* rely on foreground DOM. The user will supply the dashboard DOM at a later stage to allow writing precise orchestrator hooks.
