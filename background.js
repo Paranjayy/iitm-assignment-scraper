@@ -114,7 +114,12 @@ function unlockPage(tabId) {
                             try {
                                 const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
                                 if (editor && editor.isFocused()) {
-                                    const text = editor.getCopyText();
+                                    let text = '';
+                                    try { text = editor.getCopyText(); } catch(e) {}
+                                    if (!text || text.length === 0) {
+                                        const fallbackTA = el.querySelector('textarea.ace_text-input');
+                                        if (fallbackTA) text = fallbackTA.value;
+                                    }
                                     if (text) navigator.clipboard.writeText(text).catch(()=>{});
                                     if (key === 'x') editor.execCommand('backspace'); // Native cut removal
                                     e.preventDefault(); e.stopPropagation();
