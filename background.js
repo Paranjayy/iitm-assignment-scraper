@@ -264,6 +264,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             })
             .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
+    } else if (request.action === 'fetchScores') {
+        fetch('https://score-checker-379619009600.asia-south1.run.app/course_wise')
+            .then(res => res.text())
+            .then(html => sendResponse({ success: true, data: html }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
     } else if (request.action === 'reloadExtension') {
         chrome.runtime.reload();
         sendResponse({ success: true });
