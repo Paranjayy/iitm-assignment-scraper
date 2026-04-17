@@ -15,6 +15,7 @@
   "host_permissions": [
     "https://seek.onlinedegree.iitm.ac.in/*",
     "https://ds.study.iitm.ac.in/*",
+    "https://study.iitm.ac.in/ds/*",
     "*://score-checker-379619009600.asia-south1.run.app/*"
   ],
   "background": {
