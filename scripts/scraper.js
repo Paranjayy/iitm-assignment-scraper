@@ -34,11 +34,23 @@
         let markdown = "";
         let detectedWeek = "";
         const normalizeLooseTitle = (value = '') => value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const isGenericGradedTitle = (value = '') => {
+            const normalized = normalizeLooseTitle(value);
+            return normalized === 'graded assignment' || normalized === 'assignment' || normalized === 'programming assignment';
+        };
         const titlesLikelyMatch = (a, b) => {
             const left = normalizeLooseTitle(a || '');
             const right = normalizeLooseTitle(b || '');
             if (!left || !right) return false;
             if (left === right) return true;
+            const leftIsGeneric = isGenericGradedTitle(left);
+            const rightIsGeneric = isGenericGradedTitle(right);
+            const leftLooksGraded = /\bgrpa\b|\bgraded\b/.test(left);
+            const rightLooksGraded = /\bgrpa\b|\bgraded\b/.test(right);
+
+            // IITM GrPA pages often expose only a generic "Graded Assignment" title in the content pane.
+            if ((leftIsGeneric && rightLooksGraded) || (rightIsGeneric && leftLooksGraded)) return true;
+
             return (left.length > 8 && right.includes(left)) || (right.length > 8 && left.includes(right));
         };
         const getCurrentPageTitle = () => {

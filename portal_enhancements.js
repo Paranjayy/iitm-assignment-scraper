@@ -158,6 +158,13 @@
             return;
         }
 
+        // Ensure Spotlight never masks the bulk confirmation modal.
+        isSpotlightOpen = false;
+        const spotlightEl = document.getElementById('iitm-spotlight');
+        if (spotlightEl) spotlightEl.style.display = 'none';
+        const staleActionSubmenu = document.getElementById('spotlight-action-submenu');
+        if (staleActionSubmenu) staleActionSubmenu.remove();
+
         window.__iitm_bulk_run_active = true;
         window.__iitm_is_bulk_scraping = false;
 
@@ -258,10 +265,10 @@
                 const modalOverlay = document.createElement('div');
                 modalOverlay.id = 'iitm-bulk-confirm-overlay';
                 modalOverlay.style.cssText = `
-                    position: fixed; inset: 0; z-index: 21000;
+                    position: fixed; inset: 0; z-index: 210001;
                     background: rgba(0,0,0,0.45);
                     display: flex; align-items: center; justify-content: center;
-                    backdrop-filter: blur(2px);
+                    backdrop-filter: none;
                 `;
 
                 const card = document.createElement('div');
@@ -406,8 +413,54 @@
         let hasVideos = false;
 
         const processedDurations = [];
+        const navigationDurations = [];
+        const captureDurations = [];
         const startTimeTotal = Date.now();
         let totalCountProcessed = 0;
+
+        const averageOr = (arr, fallback) => arr.length > 0
+            ? (arr.reduce((sum, value) => sum + value, 0) / arr.length)
+            : fallback;
+
+        const waitUntilVisible = (timeoutMs = 45000) => new Promise((resolve) => {
+            if (document.visibilityState === 'visible') {
+                resolve(true);
+                return;
+            }
+
+            let settled = false;
+            const finish = (isVisible) => {
+                if (settled) return;
+                settled = true;
+                document.removeEventListener('visibilitychange', onVisibilityChange, true);
+                resolve(isVisible);
+            };
+
+            const onVisibilityChange = () => {
+                if (document.visibilityState === 'visible') finish(true);
+            };
+
+            document.addEventListener('visibilitychange', onVisibilityChange, true);
+            setTimeout(() => finish(document.visibilityState === 'visible'), timeoutMs);
+        });
+
+        const estimateRemainingSeconds = (nextIndex, isProgramming) => {
+            const remaining = Math.max(0, count - nextIndex);
+            const fallbackCapture = isProgramming ? 26 : 11;
+            const avgNavigation = averageOr(navigationDurations, 3.5);
+            const avgCapture = averageOr(captureDurations, fallbackCapture);
+            const avgPerItem = Math.max(4, avgNavigation + avgCapture + 1.5);
+            return Math.ceil(remaining * avgPerItem);
+        };
+
+        const renderEta = (seconds, paused) => {
+            const safeSeconds = Math.max(0, Number(seconds) || 0);
+            const mins = Math.floor(safeSeconds / 60);
+            const secs = safeSeconds % 60;
+            const prefix = paused ? 'ETA paused' : 'ETA';
+            return `${prefix}: ~${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
+        };
+
         for (let i = 0; i < subItems.length; i++) {
             if (cancelled || forceFinish) break;
             const itemData = subItems[i];
@@ -416,23 +469,22 @@
             const breadcrumb = itemData.breadcrumb || '';
             
             const isProgramming = (itemData.isProgramming !== undefined) ? itemData.isProgramming : (item.innerText.toLowerCase().includes('programming') || item.innerText.toLowerCase().includes('grpa'));
-            const startTimeItem = Date.now();
-            
-            // SMART ETA: Start with 25/10 baseline, then use moving average of actual capture times
-            const remaining = count - i;
-            let avgDuration = isProgramming ? 25 : 10;
-            if (processedDurations.length > 0) {
-                const total = processedDurations.reduce((a, b) => a + b, 0);
-                avgDuration = total / processedDurations.length;
+
+            if (document.visibilityState !== 'visible') {
+                progressText.innerText = 'Tab inactive. Waiting for focus to keep capture accurate...';
+                etaText.innerText = 'ETA paused: bring this tab to foreground';
+                const becameVisible = await waitUntilVisible(45000);
+                if (!becameVisible) {
+                    console.warn('⚠️ Bulk Scraper: Tab remained inactive for 45s. Continuing, but capture speed may degrade.');
+                }
             }
-            
-            const etaSeconds = Math.ceil(remaining * avgDuration); 
-            const mins = Math.floor(etaSeconds / 60);
-            const secs = etaSeconds % 60;
+
+            const startTimeItem = Date.now();
+            const navigationStart = Date.now();
             
             progressText.innerText = `Scraping: ${title} (${i+1}/${count})`;
-            progressBar.style.width = `${((i + 1) / count) * 100}%`;
-            etaText.innerText = `ETA: ~${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
+            progressBar.style.width = `${(i / count) * 100}%`;
+            etaText.innerText = renderEta(estimateRemainingSeconds(i, isProgramming), document.visibilityState !== 'visible');
             
             bulkLog(`🚀 [${i+1}/${count}] Beginning ${isProgramming ? 'GrPA' : 'Standard'} Capture: ${title}`);
             
@@ -461,36 +513,59 @@
                     console.warn(`⚠️ [${i+1}] Navigation mismatch for "${title}" (attempt ${navAttempt + 1}/3). Retrying...`);
                 }
             }
+            navigationDurations.push((Date.now() - navigationStart) / 1000);
 
             if (!navigated) {
-                console.error(`❌ [${i+1}] Could not reliably navigate to "${title}". Skipping this unit to avoid wrong capture.`);
+                console.warn(`⚠️ [${i+1}] Could not reliably navigate to "${title}". Skipping this unit to avoid wrong capture.`);
+                progressBar.style.width = `${((i + 1) / count) * 100}%`;
                 continue;
             }
 
             const captureToken = `bulk-${Date.now()}-${i}`;
+            const captureStart = Date.now();
             const capturedData = await new Promise((resolve) => {
+                let timeoutId = null;
+                let settled = false;
+                const complete = (data) => {
+                    if (settled) return;
+                    settled = true;
+                    window.removeEventListener('iitm-markdown-captured', handler);
+                    if (timeoutId) clearTimeout(timeoutId);
+                    resolve(data);
+                };
+
                 const handler = (e) => {
                     if (e.detail?.captureToken && e.detail.captureToken !== captureToken) return;
-                    window.removeEventListener('iitm-markdown-captured', handler);
-                    resolve(e.detail);
+                    complete(e.detail);
                 };
                 window.addEventListener('iitm-markdown-captured', handler);
                 window.__scraperMode = 'capture';
                 // Trigger actual capture message with real sidebar title
-                chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture', title: title, token: captureToken });
+                try {
+                    chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture', title: title, token: captureToken }, () => {
+                        const runtimeError = chrome.runtime?.lastError;
+                        if (runtimeError) {
+                            console.warn(`⚠️ [${i + 1}] triggerScraper message failed for "${title}":`, runtimeError.message);
+                            complete(null);
+                        }
+                    });
+                } catch (err) {
+                    console.warn(`⚠️ [${i + 1}] triggerScraper dispatch failed for "${title}":`, err?.message || err);
+                    complete(null);
+                }
                 
-                setTimeout(() => {
-                    window.removeEventListener('iitm-markdown-captured', handler);
-                    resolve(null);
+                timeoutId = setTimeout(() => {
+                    complete(null);
                 }, 40000); // 40s timeout for slow IITM servers
             });
+            captureDurations.push((Date.now() - captureStart) / 1000);
 
             const durationItem = (Date.now() - startTimeItem) / 1000;
             processedDurations.push(durationItem);
             bulkLog(`✅ [${i+1}] Captured in ${durationItem.toFixed(1)}s`);
             
             if (capturedData?.titleMismatch) {
-                console.error(`❌ [${i+1}] Capture title mismatch for "${title}". Expected ${capturedData.expectedTitle || 'unknown'}, got ${capturedData.detectedTitle || 'unknown'}. Skipping.`);
+                console.warn(`⚠️ [${i+1}] Capture title mismatch for "${title}". Expected ${capturedData.expectedTitle || 'unknown'}, got ${capturedData.detectedTitle || 'unknown'}. Skipping.`);
                 continue;
             }
 
@@ -538,8 +613,14 @@
                 }
                 bulkLog(`✅ [${i+1}] Capture SUCCESS: "${fullFileName}" (${durationItem}s).`);
             } else {
-                console.error(`❌ [${i+1}] Capture FAILED: "${title}" after ${durationItem}s. Skipping to next.`);
+                console.warn(`⚠️ [${i+1}] Capture failed for "${title}" after ${durationItem}s. Skipping to next.`);
             }
+
+            progressBar.style.width = `${((i + 1) / count) * 100}%`;
+            const remainingAfter = Math.max(0, count - (i + 1));
+            etaText.innerText = remainingAfter > 0
+                ? renderEta(estimateRemainingSeconds(i + 1, isProgramming), document.visibilityState !== 'visible')
+                : 'ETA: finalizing bundle...';
         }
         
         const totalDuration = ((Date.now() - startTimeTotal) / 1000).toFixed(1);
@@ -553,8 +634,9 @@
             zip.file('Asset_Links_Backup.md', masterAssetMarkdown);
         }
 
-        if (!cancelled && zip && Object.keys(zip.files).length > 0) {
-            const files = Object.keys(zip.files).filter(k => !zip.files[k].dir);
+        const files = zip ? Object.keys(zip.files).filter(k => !zip.files[k].dir) : [];
+
+        if (!cancelled && zip && files.length > 0) {
             bulkLog(`📦 Bulk Scraper: Finalizing ${files.length} items for bundle...`);
 
             if (files.length <= 50) {
@@ -579,27 +661,51 @@
             } else {
                 // LARGE BATCH: Offscreen relay for extremely large bundles
                 progressText.innerText = `Stabilizing & Shifting to Offscreen (${files.length} items)...`;
-                const zipFiles = [];
-                for (const name in zip.files) {
-                    const file = zip.files[name];
-                    if (!file.dir) {
-                        const ext = name.split('.').pop().toLowerCase();
-                        const isBinary = ['png', 'jpg', 'jpeg', 'pdf', 'gif', 'webp'].includes(ext);
-                        const content = await file.async(isBinary ? "base64" : "string");
-                        zipFiles.push({ name, content, isBinary });
+                try {
+                    const zipFiles = [];
+                    for (const name in zip.files) {
+                        const file = zip.files[name];
+                        if (!file.dir) {
+                            const ext = name.split('.').pop().toLowerCase();
+                            const isBinary = ['png', 'jpg', 'jpeg', 'pdf', 'gif', 'webp'].includes(ext);
+                            const content = await file.async(isBinary ? "base64" : "string");
+                            zipFiles.push({ name, content, isBinary });
+                        }
                     }
+
+                    const zipName = `IITM_Course_ZIP_${Date.now()}.zip`;
+                    const relayResult = await new Promise((resolve) => {
+                        chrome.runtime.sendMessage({
+                            action: 'generateZip',
+                            data: { files: zipFiles, zipName }
+                        }, (response) => {
+                            const runtimeError = chrome.runtime?.lastError;
+                            if (runtimeError) {
+                                resolve({ success: false, error: runtimeError.message });
+                                return;
+                            }
+                            resolve(response || { success: false, error: 'No response from background ZIP relay.' });
+                        });
+                    });
+
+                    if (!relayResult?.success) {
+                        throw new Error(relayResult?.error || 'Offscreen ZIP relay failed.');
+                    }
+
+                    overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Large bundle relay started. Check downloads.</div>`;
+                } catch (err) {
+                    console.error('❌ Offscreen ZIP relay failed:', err);
+                    overlay.innerHTML = `<div style="font-size: 24px; font-weight: 800; color: #f59e0b;">⚠️ ZIP Relay Failed</div><div style="margin-top:14px; opacity:0.7; text-align:center;">Captured files are ready but relay failed. Retry bulk with smaller selection.</div>`;
                 }
-                
-                chrome.runtime.sendMessage({ 
-                    action: 'generateZip', 
-                    data: { files: zipFiles, zipName: `IITM_Course_ZIP_${Date.now()}.zip` } 
-                });
-                overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">Large bundle relay started. Check downloads.</div>`;
             }
             setTimeout(() => { if (document.body.contains(overlay)) overlay.remove(); }, 4000);
+        } else if (!cancelled && zip && files.length === 0) {
+            console.info('ℹ️ Bulk Scraper: Completed run with zero successful captures; no ZIP generated.');
+            overlay.innerHTML = `<div style="font-size: 24px; font-weight: 800; color: #f59e0b;">⚠️ No Files Exported</div><div style="margin-top:14px; opacity:0.7; text-align:center;">No unit produced valid markdown in this run. Try re-running with the tab kept active.</div>`;
+            setTimeout(() => { if (document.body.contains(overlay)) overlay.remove(); }, 5000);
         } else {
-            console.warn('⚠️ Bulk Scraper: No files to zip or cancelled.');
-            overlay.remove();
+            console.info('ℹ️ Bulk Scraper: Run cancelled before ZIP generation.');
+            if (overlay && document.body.contains(overlay)) overlay.remove();
         }
         } catch (err) {
             console.error('❌ Bulk export aborted due to an unexpected error:', err);
@@ -1164,9 +1270,10 @@
             .spotlight-filters::-webkit-scrollbar { display: none; }
             #iitm-spotlight {
                 position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-                background: rgba(0,0,0,0.1); z-index: 100000;
+                background: transparent !important; z-index: 100000;
                 display: none; align-items: flex-start; justify-content: center; padding-top: 10vh;
                 backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
             }
             #iitm-spotlight .spotlight-box {
                 width: 680px;
@@ -1438,6 +1545,10 @@
                     spotlight.style.display = 'none';
                     syncCurrentPageScores(false);
                 } else if (item.actionId === 'bulkExport') {
+                    isSpotlightOpen = false;
+                    spotlight.style.display = 'none';
+                    const existing = document.getElementById('spotlight-action-submenu');
+                    if (existing) existing.remove();
                     bulkScrapeAll();
                 } else if (item.actionId === 'unlockPage') {
                     document.oncontextmenu = null; document.onselectstart = null;
@@ -1820,7 +1931,11 @@
             `;
             
             let allActions = [
-                { name: 'Bulk Export All Weeks', key: 'B', run: () => bulkScrapeAll(), global: true },
+                { name: 'Bulk Export All Weeks', key: 'B', run: () => {
+                    isSpotlightOpen = false;
+                    spotlight.style.display = 'none';
+                    bulkScrapeAll();
+                }, global: true },
                 { name: 'Export Course Syllabus', key: 'S', run: () => chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'exportSyllabus' }), global: true },
                 { name: 'Deep Search Transcription', key: 'T', run: () => { input.value = 'transcript:'; input.focus(); }, global: true },
                 { name: 'Toggle Assets Scraper', key: 'A', run: () => {
@@ -2576,31 +2691,41 @@
     }
 
     function processScoreElements(courseName, elements) {
+        if (!chrome?.runtime?.id || !chrome?.storage?.local) return;
+
         const storageKey = `iitm_scores_${courseName}`;
-        chrome.storage.local.get(null, (data) => {
-            const current = (data[storageKey] || { assignments: [], quizzes: [] });
-            let updated = false;
+        try {
+            chrome.storage.local.get(null, (data) => {
+                if (chrome.runtime?.lastError) return;
 
-            elements.forEach(el => {
-                const text = el.innerText.trim();
-                const scoreMatch = text.match(/(\d+(?:\.\d+)?)\s*\/\s*100/) || text.match(/-\s*(\d+(?:\.\d+)?)/);
-                const score = scoreMatch ? parseFloat(scoreMatch[1]) : null;
+                const current = (data[storageKey] || { assignments: [], quizzes: [] });
+                let updated = false;
 
-                if (score !== null && !isNaN(score)) {
-                    if (text.toLowerCase().includes('assignment') && !current.assignments.includes(score)) {
-                        current.assignments.push(score);
-                        updated = true;
-                    } else if (text.toLowerCase().includes('quiz') && !current.quizzes.includes(score)) {
-                        current.quizzes.push(score);
-                        updated = true;
+                elements.forEach(el => {
+                    const text = el.innerText.trim();
+                    const scoreMatch = text.match(/(\d+(?:\.\d+)?)\s*\/\s*100/) || text.match(/-\s*(\d+(?:\.\d+)?)/);
+                    const score = scoreMatch ? parseFloat(scoreMatch[1]) : null;
+
+                    if (score !== null && !isNaN(score)) {
+                        if (text.toLowerCase().includes('assignment') && !current.assignments.includes(score)) {
+                            current.assignments.push(score);
+                            updated = true;
+                        } else if (text.toLowerCase().includes('quiz') && !current.quizzes.includes(score)) {
+                            current.quizzes.push(score);
+                            updated = true;
+                        }
                     }
+                });
+
+                if (updated) {
+                    chrome.storage.local.set({ [storageKey]: current }, () => {
+                        if (chrome.runtime?.lastError) return;
+                    });
                 }
             });
-
-            if (updated) {
-                chrome.storage.local.set({ [storageKey]: current });
-            }
-        });
+        } catch (err) {
+            console.info('IITM Engine: score sync skipped due to stale extension context.', err?.message || err);
+        }
     }
 
     function showFeatureTour() {
@@ -2841,42 +2966,59 @@
     // Silently fetches and parses the Score Checker without navigating there.
     async function universalBackgroundSync() {
         if (window.location.hostname.includes('score-checker')) return; 
+        if (!chrome?.runtime?.id) return;
+        const verboseEngineLogs = localStorage.getItem('iitm-engine-debug') === 'true';
 
         return new Promise((resolve) => {
-            chrome.runtime.sendMessage({ action: 'fetchScores' }, (response) => {
-                if (response?.success && response?.data) {
-                    const html = response.data;
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const rows = doc.querySelectorAll('table tr');
-                    let foundAny = false;
-                    
-                    rows.forEach(row => {
-                        const cells = row.querySelectorAll('td');
-                        if (cells.length < 4) return;
-                        const courseCode = cells[2]?.innerText.trim();
-                        const totalScore = parseFloat(cells[3]?.innerText.trim());
-                        
-                        if (courseCode && !isNaN(totalScore)) {
-                            foundAny = true;
-                            const key = `iitm_scores_${courseCode}`;
-                            chrome.storage.local.get(key, (data) => {
-                                const current = data[key] || { assignments: [], quizzes: [], total: 0 };
-                                if (current.total !== totalScore) {
-                                    current.total = totalScore;
-                                    chrome.storage.local.set({ [key]: current });
-                                }
-                            });
-                        }
-                    });
-                    
-                    if (foundAny) console.log('IITM Engine: Universal Sync Successful (Background)');
-                    resolve();
-                } else {
-                    console.log('IITM Engine: Universal Sync (Background) offline or session expired.');
-                    resolve();
-                }
-            });
+            try {
+                chrome.runtime.sendMessage({ action: 'fetchScores' }, (response) => {
+                    const runtimeError = chrome.runtime?.lastError;
+                    if (runtimeError) {
+                        if (verboseEngineLogs) console.info('IITM Engine: Universal Sync skipped:', runtimeError.message);
+                        resolve();
+                        return;
+                    }
+
+                    if (response?.success && response?.data) {
+                        const html = response.data;
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        const rows = doc.querySelectorAll('table tr');
+                        let foundAny = false;
+
+                        rows.forEach(row => {
+                            const cells = row.querySelectorAll('td');
+                            if (cells.length < 4) return;
+                            const courseCode = cells[2]?.innerText.trim();
+                            const totalScore = parseFloat(cells[3]?.innerText.trim());
+
+                            if (courseCode && !isNaN(totalScore)) {
+                                foundAny = true;
+                                const key = `iitm_scores_${courseCode}`;
+                                chrome.storage.local.get(key, (data) => {
+                                    if (chrome.runtime?.lastError) return;
+                                    const current = data[key] || { assignments: [], quizzes: [], total: 0 };
+                                    if (current.total !== totalScore) {
+                                        current.total = totalScore;
+                                        chrome.storage.local.set({ [key]: current }, () => {
+                                            if (chrome.runtime?.lastError) return;
+                                        });
+                                    }
+                                });
+                            }
+                        });
+
+                        if (foundAny && verboseEngineLogs) console.log('IITM Engine: Universal Sync Successful (Background)');
+                        resolve();
+                    } else {
+                        if (verboseEngineLogs) console.log('IITM Engine: Universal Sync (Background) offline or session expired.');
+                        resolve();
+                    }
+                });
+            } catch (err) {
+                if (verboseEngineLogs) console.info('IITM Engine: Universal Sync aborted due to stale extension context.');
+                resolve();
+            }
         });
     }
 

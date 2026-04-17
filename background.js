@@ -215,6 +215,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         executeScaper(sender.tab.id, request.mode || 'single', request.title, request.token || null);
         sendResponse({ success: true });
         return true;
+  } else if (request.action === 'fetchScores') {
+    const scoreCheckerUrl = request.url || 'https://score-checker-379619009600.asia-south1.run.app/course_wise';
+
+    fetch(scoreCheckerUrl, {
+      method: 'GET',
+      credentials: 'include',
+      redirect: 'follow'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+      })
+      .then(html => {
+        if (html.includes('accounts.google.com')) {
+          throw new Error('Authentication Required. Please log in to the Score Checker first.');
+        }
+        sendResponse({ success: true, data: html });
+      })
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
     } else if (request.action === 'syncAce' && sender.tab) {
         chrome.scripting.executeScript({
             target: { tabId: sender.tab.id },
@@ -246,8 +266,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: true });
         return true;
     } else if (request.action === 'generateZip') {
-        relayToOffscreen(request);
-        sendResponse({ success: true });
+      relayToOffscreen(request)
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
     } else if (request.action === 'indexTranscript') {
         chrome.storage.local.get(['iitm_transcripts'], (result) => {
             const transcripts = result.iitm_transcripts || [];
