@@ -52,6 +52,146 @@
                 ''
             ).trim();
         };
+        const scrapeMetrics = {
+            isProgramming: false,
+            totalQuestions: 0,
+            evaluatedQuestions: 0,
+            correctQuestions: 0,
+            publicTestsPassed: 0,
+            publicTestsTotal: 0,
+            privateTestsPassed: 0,
+            privateTestsTotal: 0,
+            duplicateTestBlocksSkipped: 0,
+            hasEOIMarker: false
+        };
+
+        const parsePassTotal = (text = '') => {
+            const direct = text.match(/(\d+)\s*\/\s*(\d+)\s*Passed/i);
+            const generic = text.match(/(\d+)\s*\/\s*(\d+)/);
+            const match = direct || generic;
+            if (!match) return null;
+            const passed = Number(match[1]);
+            const total = Number(match[2]);
+            if (!Number.isFinite(passed) || !Number.isFinite(total)) return null;
+            return { passed, total };
+        };
+
+        const hydrateProgrammingSummaryFromPage = () => {
+            const normalized = (document.body?.innerText || '').replace(/\s+/g, ' ');
+            const pub = parsePassTotal((normalized.match(/Public\s+Tests?[^\d]*(\d+\s*\/\s*\d+\s*Passed?)/i) || [])[1] || '');
+            const pvt = parsePassTotal((normalized.match(/Private\s+Tests?[^\d]*(\d+\s*\/\s*\d+\s*Passed?)/i) || [])[1] || '');
+
+            if (pub) {
+                scrapeMetrics.publicTestsPassed = pub.passed;
+                scrapeMetrics.publicTestsTotal = pub.total;
+            }
+            if (pvt) {
+                scrapeMetrics.privateTestsPassed = pvt.passed;
+                scrapeMetrics.privateTestsTotal = pvt.total;
+            }
+
+            const total = scrapeMetrics.publicTestsTotal + scrapeMetrics.privateTestsTotal;
+            const correct = scrapeMetrics.publicTestsPassed + scrapeMetrics.privateTestsPassed;
+            if (total > 0) {
+                scrapeMetrics.totalQuestions = total;
+                scrapeMetrics.evaluatedQuestions = total;
+                scrapeMetrics.correctQuestions = Math.min(correct, total);
+            }
+        };
+
+        const inferTopicDeterministically = () => {
+            const source = `${assignmentTitle || ''} ${detectedWeek || ''} ${document.querySelector('.modules__content-head-title')?.innerText || ''}`.toLowerCase();
+            const weekNum = (detectedWeek || assignmentTitle || '').match(/week\s*(\d+)/i)?.[1];
+
+            const keywords = [
+                { key: 'recursion', label: 'Recursion' },
+                { key: 'stack', label: 'Stacks' },
+                { key: 'queue', label: 'Queues' },
+                { key: 'list', label: 'Lists' },
+                { key: 'tuple', label: 'Tuples' },
+                { key: 'set', label: 'Sets' },
+                { key: 'dictionary', label: 'Dictionaries' },
+                { key: 'string', label: 'Strings' },
+                { key: 'function', label: 'Functions' },
+                { key: 'loop', label: 'Loops' },
+                { key: 'class', label: 'Classes' },
+                { key: 'oop', label: 'Object-Oriented Programming' },
+                { key: 'tree', label: 'Trees' },
+                { key: 'graph', label: 'Graphs' },
+                { key: 'matrix', label: 'Matrices' },
+                { key: 'sort', label: 'Sorting' },
+                { key: 'search', label: 'Searching' }
+            ];
+
+            const matched = keywords.find(entry => source.includes(entry.key));
+            if (weekNum && matched) return `Week ${weekNum}: ${matched.label}`;
+            if (matched) return matched.label;
+            if (weekNum) return `Week ${weekNum}`;
+            return (detectedWeek || 'General').replace(/\s+/g, ' ').trim();
+        };
+
+        const getQualityGrade = (score) => {
+            if (score >= 90) return 'A';
+            if (score >= 75) return 'B';
+            if (score >= 60) return 'C';
+            return 'D';
+        };
+
+        const computeScrapeQuality = (topicValue, finalBody, counts) => {
+            let score = 0;
+            const issues = [];
+
+            if (assignmentTitle) score += 10; else issues.push('missing-title');
+            if (courseTitle) score += 10; else issues.push('missing-course');
+            if (detectedWeek) score += 10; else issues.push('missing-breadcrumb');
+            if (topicValue) score += 10; else issues.push('missing-topic');
+
+            if (counts.total >= counts.evaluated && counts.evaluated >= counts.correct) {
+                score += 20;
+            } else {
+                issues.push('invalid-evaluation-counts');
+            }
+
+            const expectedOutputBlocks = Array.from(finalBody.matchAll(/\*\*Expected Output:\*\*\n```text\n([\s\S]*?)\n```/g));
+            const trailingWhitespaceFound = expectedOutputBlocks.some(match => {
+                return match[1].split('\n').some(line => /[ \t]+$/.test(line));
+            });
+            if (!trailingWhitespaceFound) score += 15;
+            else issues.push('expected-output-trailing-whitespace');
+
+            const ioBlocks = Array.from(finalBody.matchAll(/\*\*Input:\*\*\n```text\n([\s\S]*?)\n```\n\n\*\*Expected Output:\*\*\n```text\n([\s\S]*?)\n```/g));
+            const fingerprints = new Set();
+            let hasDuplicates = false;
+            for (const block of ioBlocks) {
+                const fp = `${block[1].trim()}::${block[2].trim()}`;
+                if (fingerprints.has(fp)) {
+                    hasDuplicates = true;
+                    break;
+                }
+                fingerprints.add(fp);
+            }
+            if (!hasDuplicates) score += 10;
+            else issues.push('duplicate-testcases-in-output');
+
+            const hasOfficialSolution = finalBody.includes('### 💻 IITM Official Solution');
+            const looksLikeProgramming = scrapeMetrics.isProgramming || hasOfficialSolution || finalBody.includes('```python');
+            const hasEOIMarker = /#\s*<eoi>/i.test(finalBody);
+            scrapeMetrics.hasEOIMarker = hasEOIMarker;
+
+            if (!looksLikeProgramming || !hasOfficialSolution || hasEOIMarker) {
+                score += 15;
+            } else {
+                issues.push('missing-eoi-marker');
+            }
+
+            const boundedScore = Math.max(0, Math.min(100, score));
+            return {
+                score: boundedScore,
+                grade: getQualityGrade(boundedScore),
+                issues,
+                hasEOIMarker
+            };
+        };
         function scrapeAssignment() {
             console.log("Scraping started...");
             
@@ -294,6 +434,8 @@
             }
 
             if (initialTabs.length > 0) {
+                scrapeMetrics.isProgramming = true;
+                hydrateProgrammingSummaryFromPage();
                 console.log(`%c[GRPA SCRAPER] Detected ${initialTabs.length} tabs. Starting high-fidelity extraction...`, 'color: #db2777; font-weight: bold; font-size: 14px;');
                 
                 // GLOBAL DE-DUPLICATION: Ensures we literally never print the exact same piece of code twice across tabs
@@ -352,6 +494,16 @@
                                     // Fixes formatting like "Private Tests (\n 14/14 \n)" to be inline
                                     const typeName = typeBtn.innerText.trim().replace(/\s+/g, ' ');
                                     const isLocked = typeBtn.querySelector('.locked-case, .lock-img, app-icon[aria-label="Locked"]');
+                                    const ratioFromType = parsePassTotal(typeName);
+                                    if (ratioFromType) {
+                                        if (typeName.toLowerCase().includes('public')) {
+                                            scrapeMetrics.publicTestsPassed = ratioFromType.passed;
+                                            scrapeMetrics.publicTestsTotal = ratioFromType.total;
+                                        } else if (typeName.toLowerCase().includes('private')) {
+                                            scrapeMetrics.privateTestsPassed = ratioFromType.passed;
+                                            scrapeMetrics.privateTestsTotal = ratioFromType.total;
+                                        }
+                                    }
                                     
                                     if (isLocked) {
                                         markdown += `#### 🔒 ${typeName}\n\n> *This test case group is locked and will be revealed after the deadline.*\n\n---\n\n`;
@@ -414,6 +566,8 @@
                                                     }
                                                     markdown += `**${titleText}:**\n\`\`\`text\n${contentText}\n\`\`\`\n\n`;
                                                     seenContent.add(fingerPrint);
+                                                } else {
+                                                    scrapeMetrics.duplicateTestBlocksSkipped += 1;
                                                 }
                                             }
                                         });
@@ -537,6 +691,14 @@
                 if (editorMarkdown) {
                     markdown += editorMarkdown;
                 }
+
+                const computedTotal = scrapeMetrics.publicTestsTotal + scrapeMetrics.privateTestsTotal;
+                if (computedTotal > 0) {
+                    const computedCorrect = scrapeMetrics.publicTestsPassed + scrapeMetrics.privateTestsPassed;
+                    scrapeMetrics.totalQuestions = computedTotal;
+                    scrapeMetrics.evaluatedQuestions = computedTotal;
+                    scrapeMetrics.correctQuestions = Math.min(computedCorrect, computedTotal);
+                }
             } else {
                 // Smart polling for normal assignment content to prevent empty downloads
                 console.log('IITM Scraper: Smart polling for normal assignment content...');
@@ -583,6 +745,9 @@
 
                 const questionBlocks = document.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question');
                 console.log(`IITM Scraper: Found ${questionBlocks.length} question blocks.`);
+                scrapeMetrics.totalQuestions = questionBlocks.length;
+                scrapeMetrics.evaluatedQuestions = 0;
+                scrapeMetrics.correctQuestions = 0;
 
                 // --- RESOURCE LINK DETECTION (Slides, Transcripts, Keys) ---
                 const resourceLinks = Array.from(document.querySelectorAll('a')).filter(a => {
@@ -624,6 +789,8 @@
                     markdown += turndownService.turndown(clone.innerHTML);
                 } else {
                     questionBlocks.forEach((block, index) => {
+                        let questionEvaluated = false;
+                        let questionCorrect = false;
                         markdown += `### Question ${index + 1}\n\n`;
 
                         // Try to find question text
@@ -670,15 +837,32 @@
 
                         const feedbackElement = block.querySelector('.qt-feedback[role="alert"], .feedback-container, .explanation');
                         if (feedbackElement) {
+                            questionEvaluated = true;
                             // Status and Score
                             const statusHeader = feedbackElement.querySelector('h3.feedback-header, .status-header');
                             if (statusHeader) {
                                 const statusSpans = Array.from(statusHeader.querySelectorAll('span.correct, .status-text'));
                                 const statusText = statusSpans[0]?.innerText.trim();
-                                if (statusText) markdown += `**Status:** ${statusText}\n`;
+                                if (statusText) {
+                                    markdown += `**Status:** ${statusText}\n`;
+                                    if (statusText.toLowerCase().includes('correct') || statusText.toLowerCase().includes('passed')) {
+                                        questionCorrect = true;
+                                    }
+                                }
 
                                 const scoreSpan = statusSpans.find(s => s.innerText.toLowerCase().includes('score')) || feedbackElement.querySelector('.score-badge');
-                                if (scoreSpan) markdown += `**Score:** ${scoreSpan.innerText.trim()}\n`;
+                                if (scoreSpan) {
+                                    const scoreText = scoreSpan.innerText.trim();
+                                    markdown += `**Score:** ${scoreText}\n`;
+                                    const scoreMatch = scoreText.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+                                    if (scoreMatch) {
+                                        const got = Number(scoreMatch[1]);
+                                        const outOf = Number(scoreMatch[2]);
+                                        if (Number.isFinite(got) && Number.isFinite(outOf) && outOf > 0 && got >= outOf) {
+                                            questionCorrect = true;
+                                        }
+                                    }
+                                }
                             }
 
                             // Detailed Feedback / Explanation
@@ -710,6 +894,8 @@
                                 markdown += turndownService.turndown(ansClone.innerHTML).trim() + '\n\n';
                             }
                         }
+                        if (questionEvaluated) scrapeMetrics.evaluatedQuestions += 1;
+                        if (questionCorrect) scrapeMetrics.correctQuestions += 1;
                         markdown += `---\n\n`;
                     });
                 }
@@ -859,10 +1045,20 @@
         }
 
         async function finalizeExport() {
+            hydrateProgrammingSummaryFromPage();
+
             const expectedBulkTitle = (window.__bulkScrapeTitle || '').trim();
             const detectedPageTitle = getCurrentPageTitle() || assignmentTitle;
             const titleMismatch = !!expectedBulkTitle && !titlesLikelyMatch(detectedPageTitle, expectedBulkTitle);
             const effectiveTitle = titleMismatch ? detectedPageTitle : (expectedBulkTitle || detectedPageTitle || assignmentTitle || 'Assignment');
+
+            const topic = inferTopicDeterministically();
+
+            const totalQuestions = Math.max(0, scrapeMetrics.totalQuestions || 0);
+            let evaluatedQuestions = Math.max(0, scrapeMetrics.evaluatedQuestions || 0);
+            let correctQuestions = Math.max(0, scrapeMetrics.correctQuestions || 0);
+            if (evaluatedQuestions > totalQuestions) evaluatedQuestions = totalQuestions;
+            if (correctQuestions > evaluatedQuestions) correctQuestions = evaluatedQuestions;
 
             assignmentTitle = effectiveTitle;
 
@@ -871,6 +1067,19 @@
             finalMarkdown += `Title: ${assignmentTitle || 'Assignment'}\n`;
             finalMarkdown += `Course: ${courseTitle || 'Unknown Course'}\n`;
             finalMarkdown += `Breadcrumb: ${detectedWeek || 'General'}\n`;
+            finalMarkdown += `topic: "${(topic || 'General').replace(/"/g, '\\"')}"\n`;
+            finalMarkdown += `total_questions: ${totalQuestions}\n`;
+            finalMarkdown += `evaluated_questions: ${evaluatedQuestions}\n`;
+            finalMarkdown += `correct_questions: ${correctQuestions}\n`;
+            finalMarkdown += `evaluation: "${correctQuestions}/${totalQuestions}"\n`;
+            const quality = computeScrapeQuality(topic, (markdown || "").replace(/xxxxxxxxxx/g, ''), {
+                total: totalQuestions,
+                evaluated: evaluatedQuestions,
+                correct: correctQuestions
+            });
+            finalMarkdown += `scrape_quality_score: ${quality.score}\n`;
+            finalMarkdown += `scrape_quality_grade: "${quality.grade}"\n`;
+            finalMarkdown += `scrape_quality_issues: "${quality.issues.length > 0 ? quality.issues.join(', ') : 'none'}"\n`;
             finalMarkdown += "---\n\n";
             
             finalMarkdown += (markdown || "").replace(/xxxxxxxxxx/g, '');
@@ -923,6 +1132,14 @@
                 titleMismatch: titleMismatch,
                 course: courseTitle,
                 week: detectedWeek, 
+                topic: topic,
+                totalQuestions: totalQuestions,
+                evaluatedQuestions: evaluatedQuestions,
+                correctQuestions: correctQuestions,
+                evaluation: `${correctQuestions}/${totalQuestions}`,
+                qualityScore: quality.score,
+                qualityGrade: quality.grade,
+                qualityIssues: quality.issues,
                 resources: resources,
                 videos: videos,
                 captureToken: window.__bulkScrapeToken || null
