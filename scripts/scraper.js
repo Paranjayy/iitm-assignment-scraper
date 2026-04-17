@@ -33,6 +33,25 @@
 
         let markdown = "";
         let detectedWeek = "";
+        const normalizeLooseTitle = (value = '') => value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const titlesLikelyMatch = (a, b) => {
+            const left = normalizeLooseTitle(a || '');
+            const right = normalizeLooseTitle(b || '');
+            if (!left || !right) return false;
+            if (left === right) return true;
+            return (left.length > 8 && right.includes(left)) || (right.length > 8 && left.includes(right));
+        };
+        const getCurrentPageTitle = () => {
+            return (
+                document.querySelector('.programming-code-editor-container .title')?.innerText ||
+                document.querySelector('.left-content .assignment-title')?.innerText ||
+                document.querySelector('.assignment-title')?.innerText ||
+                document.querySelector('.title-container')?.innerText ||
+                document.querySelector('.modules__content-head-title h2')?.innerText ||
+                document.querySelector('.modules__content-head-title')?.innerText ||
+                ''
+            ).trim();
+        };
         function scrapeAssignment() {
             console.log("Scraping started...");
             
@@ -104,9 +123,6 @@
             }
         }
             
-        // Prioritize the Sidebar title if known (passed via bulk scraper)
-        assignmentTitle = window.__bulkScrapeTitle || assignmentTitle;
-
         markdown += `# ${assignmentTitle}\n\n`;
         markdown += `> **Course:** ${courseTitle}\n\n`;
 
@@ -120,9 +136,6 @@
                 const openedSubItem = document.querySelector('.units__subitems-text.opened, .units__subitems-text.opened-btn');
                 detectedWeek = openedSubItem?.closest('.units__items')?.querySelector('.units__items-title')?.innerText.trim() || '';
             } catch (e) {}
-
-            // Prioritize the Sidebar title if known (passed via bulk scraper)
-            assignmentTitle = window.__bulkScrapeTitle || assignmentTitle;
 
             // Metadata extraction complete. DO NOT prepend to markdown yet.
             if (window.location.hostname.includes('score-checker')) {
@@ -387,6 +400,7 @@
                                         }
                                         
                                         const currentCaseBlocks = document.querySelectorAll('.test-case-block');
+                                        let caseHeaderAdded = false;
                                         currentCaseBlocks.forEach(block => {
                                             const titleText = block.querySelector('.test-case-block-title')?.innerText.trim();
                                             const contentText = block.querySelector('.test-case-block-content')?.innerText.trim();
@@ -394,7 +408,10 @@
                                                 const fingerPrint = `${titleText}:${contentText}`;
                                                 if (!seenContent.has(fingerPrint)) {
                                                     if (!groupAdded) { markdown += typeMarkdown; groupAdded = true; }
-                                                    markdown += `#### ${caseName}\n\n`;
+                                                    if (!caseHeaderAdded) {
+                                                        markdown += `#### ${caseName}\n\n`;
+                                                        caseHeaderAdded = true;
+                                                    }
                                                     markdown += `**${titleText}:**\n\`\`\`text\n${contentText}\n\`\`\`\n\n`;
                                                     seenContent.add(fingerPrint);
                                                 }
@@ -516,7 +533,7 @@
                     markdown += '---\n\n';
                 } // End For Loop (initialTabs)
                 
-                // FINAL INJECTION: Place collected editor submissions at the very bottom
+                // FINAL INJECTION: Place collected editor submissions at the top or bottom as appropriate
                 if (editorMarkdown) {
                     markdown += editorMarkdown;
                 }
@@ -566,6 +583,36 @@
 
                 const questionBlocks = document.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question');
                 console.log(`IITM Scraper: Found ${questionBlocks.length} question blocks.`);
+
+                // --- RESOURCE LINK DETECTION (Slides, Transcripts, Keys) ---
+                const resourceLinks = Array.from(document.querySelectorAll('a')).filter(a => {
+                    const text = a.innerText.toLowerCase();
+                    const href = (a.href || "").toLowerCase();
+                    return (
+                        text.includes('slide') || text.includes('transcript') || 
+                        text.includes('session') || text.includes('key') || 
+                        text.includes('feedback') || text.includes('resource') ||
+                        href.includes('drive.google.com') || href.includes('docs.google.com/spreadsheets')
+                    );
+                });
+
+                if (resourceLinks.length > 0) {
+                    markdown += `## 📎 Resource Links\n\n`;
+                    resourceLinks.forEach(a => {
+                        const text = a.innerText.trim() || 'Link';
+                        const href = a.href;
+                        let icon = '🔗';
+                        if (text.toLowerCase().includes('slide')) icon = '🛝';
+                        else if (text.toLowerCase().includes('transcript')) icon = '📜';
+                        else if (text.toLowerCase().includes('session')) icon = '👨‍🏫';
+                        else if (text.toLowerCase().includes('key') || text.toLowerCase().includes('feedback')) icon = '🔑';
+                        else if (href.includes('drive.google.com')) icon = '📁';
+                        else if (href.includes('spreadsheets')) icon = '📊';
+
+                        markdown += `- ${icon} [${text}](${href})\n`;
+                    });
+                    markdown += '\n---\n\n';
+                }
 
                 if (questionBlocks.length === 0 && !ytIframe) {
                     // Fallback to full content if nothing structured found
@@ -812,6 +859,13 @@
         }
 
         async function finalizeExport() {
+            const expectedBulkTitle = (window.__bulkScrapeTitle || '').trim();
+            const detectedPageTitle = getCurrentPageTitle() || assignmentTitle;
+            const titleMismatch = !!expectedBulkTitle && !titlesLikelyMatch(detectedPageTitle, expectedBulkTitle);
+            const effectiveTitle = titleMismatch ? detectedPageTitle : (expectedBulkTitle || detectedPageTitle || assignmentTitle || 'Assignment');
+
+            assignmentTitle = effectiveTitle;
+
             // Build the final markdown string with metadata header
             let finalMarkdown = "---\n";
             finalMarkdown += `Title: ${assignmentTitle || 'Assignment'}\n`;
@@ -831,8 +885,18 @@
                 videos.push({ title: vidTitle, url: vidMatch ? `https://youtube.com/watch?v=${vidMatch[1]}` : src });
             }
 
-            const resources = Array.from(document.querySelectorAll('a[href*=".pdf"], app-resource-item a, .resource-item a')).map(a => ({ 
-                title: a.innerText.trim() || 'Document', 
+            const resources = Array.from(document.querySelectorAll('a')).filter(a => {
+                const text = a.innerText.toLowerCase();
+                const href = (a.href || "").toLowerCase();
+                return (
+                    href.endsWith('.pdf') || 
+                    text.includes('slide') || text.includes('transcript') || 
+                    text.includes('session') || text.includes('key') || 
+                    text.includes('resource') ||
+                    href.includes('drive.google.com') || href.includes('docs.google.com/spreadsheets')
+                );
+            }).map(a => ({ 
+                title: a.innerText.trim() || 'Resource', 
                 url: a.href 
             }));
             
@@ -854,10 +918,14 @@
             const detail = { 
                 markdown: finalMarkdown, 
                 title: assignmentTitle,
+                detectedTitle: detectedPageTitle,
+                expectedTitle: expectedBulkTitle,
+                titleMismatch: titleMismatch,
                 course: courseTitle,
                 week: detectedWeek, 
                 resources: resources,
-                videos: videos
+                videos: videos,
+                captureToken: window.__bulkScrapeToken || null
             };
 
             if (window.__scraperMode === 'capture') {
@@ -926,21 +994,24 @@
                 consolidatedMarkdown += `**Total Score:** \`${totalScore}\`\n\n`;
 
                 try {
-                    // Use URLSearchParams for generic application/x-www-form-urlencoded compatibility
                     const params = new URLSearchParams();
                     for (const pair of new FormData(form)) {
                         params.append(pair[0], pair[1]);
                     }
 
-                    const response = await fetch(form.action, { 
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: params.toString() 
+                    const response = await new Promise(resolve => {
+                        chrome.runtime.sendMessage({
+                            action: 'fetchRelay',
+                            url: form.action,
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: params.toString()
+                        }, resolve);
                     });
 
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    if (!response?.success) throw new Error(response?.error || 'Unknown Fetch Error');
 
-                    const html = await response.text();
+                    const html = response.data;
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(html, 'text/html');
                     
@@ -952,7 +1023,7 @@
                         processNode(tableClone);
                         consolidatedMarkdown += turndownService.turndown(tableClone.outerHTML) + '\n\n';
                     } else {
-                        consolidatedMarkdown += `*Detailed scores not available for this course.*\n\n`;
+                        consolidatedMarkdown += `*Detailed scores not available for this course (Auth might be needed).* \n\n`;
                     }
                 } catch (e) {
                     console.error(`Scrape failed for ${courseCode}:`, e);
@@ -972,6 +1043,40 @@
             console.log('IITM Scraper: Exporting Course Syllabus...');
             let syllabusMd = `# Syllabus: ${courseTitle}\n\n`;
             syllabusMd += `> **Generated on:** ${new Date().toLocaleString()}\n\n`;
+
+            // --- GLOBAL RESOURCES (Slides, Sessions, Transcripts) ---
+            const globalResources = Array.from(document.querySelectorAll('a')).filter(a => {
+                const text = a.innerText.toLowerCase();
+                const href = (a.href || "").toLowerCase();
+                return (
+                    (text.includes('slide') || text.includes('transcript') || 
+                     text.includes('session') || text.includes('key') || 
+                     text.includes('handbook') || text.includes('resource')) &&
+                    (href.includes('drive.google.com') || href.includes('docs.google.com') || href.includes('.pdf'))
+                );
+            });
+
+            if (globalResources.length > 0) {
+                syllabusMd += `## 📎 Global Course Resources\n\n`;
+                const seenLinks = new Set();
+                globalResources.forEach(a => {
+                    const text = a.innerText.trim() || 'Link';
+                    const href = a.href;
+                    if (seenLinks.has(href)) return;
+                    seenLinks.add(href);
+                    
+                    let icon = '🔗';
+                    if (text.toLowerCase().includes('slide')) icon = '🛝';
+                    else if (text.toLowerCase().includes('transcript')) icon = '📜';
+                    else if (text.toLowerCase().includes('session')) icon = '👨‍🏫';
+                    else if (text.toLowerCase().includes('handbook')) icon = '📙';
+                    else if (href.includes('drive.google.com')) icon = '📁';
+                    else if (href.includes('spreadsheets')) icon = '📊';
+
+                    syllabusMd += `- ${icon} [${text}](${href})\n`;
+                });
+                syllabusMd += `\n---\n\n`;
+            }
 
             const weeks = document.querySelectorAll('.units__items');
             if (weeks.length === 0) {

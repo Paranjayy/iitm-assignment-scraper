@@ -7,6 +7,50 @@
     let activeFilter = 'all';
     let isTimerDismissed = false; 
     const selectedItems = new Set(); // Persistent selection storage
+    const normalizeLooseText = (value = '') => value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const getSelectionKey = (itemOrText, breadcrumb = '') => {
+        if (typeof itemOrText === 'string') {
+            return `${normalizeLooseText(breadcrumb)}::${normalizeLooseText(itemOrText)}`;
+        }
+        const item = itemOrText || {};
+        return `${normalizeLooseText(item.breadcrumb || '')}::${normalizeLooseText(item.text || '')}`;
+    };
+    const persistSelectedItems = () => {
+        localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
+    };
+    const hydrateSelectedItems = () => {
+        try {
+            const raw = JSON.parse(localStorage.getItem('iitm-selected-items') || '[]');
+            if (!Array.isArray(raw)) return;
+            raw.forEach(entry => {
+                if (typeof entry === 'string' && entry.trim()) selectedItems.add(entry);
+            });
+        } catch (e) {
+            console.warn('Failed to load selected items from storage:', e);
+        }
+    };
+    const isItemSelected = (item) => {
+        if (!item) return false;
+        return selectedItems.has(getSelectionKey(item)) || selectedItems.has(item.text || '');
+    };
+    const setItemSelected = (item, shouldSelect) => {
+        if (!item || !item.text) return;
+        const key = getSelectionKey(item);
+        const legacy = item.text;
+        if (shouldSelect) {
+            selectedItems.add(key);
+            selectedItems.delete(legacy);
+            return;
+        }
+        selectedItems.delete(key);
+        selectedItems.delete(legacy);
+    };
+    const toggleItemSelection = (item) => {
+        const nextState = !isItemSelected(item);
+        setItemSelected(item, nextState);
+        return nextState;
+    };
+    hydrateSelectedItems();
     let includeAssets = localStorage.getItem('iitm-include-assets') !== 'false';
     let spotlightInitialized = false;
     let collapsedGroups = new Set(JSON.parse(localStorage.getItem('iitm-collapsed-groups') || '[]'));
@@ -111,6 +155,78 @@
     const bulkScrapeAll = async () => {
         let subItems = [];
         const zip = typeof JSZip !== 'undefined' ? new JSZip() : null;
+        const titleLooksLikeMatch = (expected, current) => {
+            const e = normalizeLooseText(expected || '');
+            const c = normalizeLooseText(current || '');
+            if (!e || !c) return false;
+            if (e === c) return true;
+            return (e.length > 8 && c.includes(e)) || (c.length > 8 && e.includes(c));
+        };
+        const getActiveSidebarTitle = () => {
+            return (
+                document.querySelector('.units__subitems-selected .units__subitems-title span')?.innerText ||
+                document.querySelector('.units__subitems-selected .units__subitems-title')?.innerText ||
+                document.querySelector('.units__subitems-text.opened .units__subitems-title span')?.innerText ||
+                ''
+            ).trim();
+        };
+        const getCurrentPortalTitle = () => {
+            return (
+                document.querySelector('.programming-code-editor-container .title')?.innerText ||
+                document.querySelector('.left-content .assignment-title')?.innerText ||
+                document.querySelector('.assignment-title')?.innerText ||
+                document.querySelector('.title-container')?.innerText ||
+                document.querySelector('.modules__content-head-title h2')?.innerText ||
+                document.querySelector('.modules__content-head-title')?.innerText ||
+                ''
+            ).trim();
+        };
+        const findItemNode = (itemData, title, breadcrumb) => {
+            const directNode = itemData?.el;
+            if (directNode && document.body.contains(directNode)) return directNode;
+
+            const normalizedTitle = normalizeLooseText(title);
+            const normalizedBreadcrumb = normalizeLooseText(breadcrumb || '');
+            const headers = Array.from(document.querySelectorAll('.units__items, .mat-expansion-panel'));
+            const targetHeader = headers.find(h => {
+                if (!normalizedBreadcrumb) return true;
+                const headerTitle = (
+                    h.querySelector('.units__items-title span')?.innerText ||
+                    h.querySelector('.units__items-title')?.innerText ||
+                    h.querySelector('.mat-expansion-panel-header-title')?.innerText ||
+                    ''
+                ).trim();
+                return normalizeLooseText(headerTitle).includes(normalizedBreadcrumb);
+            });
+
+            if (!targetHeader) return null;
+
+            if (!targetHeader.classList.contains('mat-expanded') && !targetHeader.querySelector('.mat-expansion-panel-content')) {
+                (targetHeader.querySelector('.units__items-title, .mat-expansion-panel-header') || targetHeader).click();
+            }
+
+            const subitems = Array.from(targetHeader.querySelectorAll('.units__subitems'));
+            return subitems.find(s => {
+                const nodeTitle = (s.querySelector('.units__subitems-title span')?.innerText || s.innerText.split('\n')[0] || '').trim();
+                const normalizedNode = normalizeLooseText(nodeTitle);
+                return normalizedNode === normalizedTitle || normalizedNode.includes(normalizedTitle) || normalizedTitle.includes(normalizedNode);
+            }) || null;
+        };
+        const waitForNavigation = async (title, timeoutMs = 10000) => {
+            const started = Date.now();
+            while (Date.now() - started < timeoutMs) {
+                const sidebarTitle = getActiveSidebarTitle();
+                const portalTitle = getCurrentPortalTitle();
+                const sidebarMatch = titleLooksLikeMatch(title, sidebarTitle);
+                const portalMatch = titleLooksLikeMatch(title, portalTitle);
+                if (sidebarMatch && (portalMatch || !portalTitle)) {
+                    await new Promise(r => setTimeout(r, 500));
+                    return true;
+                }
+                await new Promise(r => setTimeout(r, 250));
+            }
+            return false;
+        };
         
         // Force-expand all weeks to ensure items are rendered in DOM
         const weeks = document.querySelectorAll('.units__section');
@@ -124,19 +240,34 @@
             }
         }
 
+        const indexedItems = (typeof window.__iitm_get_items === 'function' ? window.__iitm_get_items() : [])
+            .filter(item => item && item.isSub && item.el && !item.actionId && !item.url);
+
         if (selectedItems.size > 0) {
-            subItems = Array.from(document.querySelectorAll('.units__subitems')).filter(item => {
-                const titleNode = item.querySelector('.unit__item-title');
-                const title = titleNode ? titleNode.textContent.trim() : item.innerText.split('\n')[0].trim();
-                const isMatched = selectedItems.has(title);
-                if (isMatched) console.log(`🎯 Bulk Scraper: Matched selected item "${title}"`);
+            subItems = indexedItems.filter(item => {
+                const isMatched = isItemSelected(item);
+                if (isMatched) console.log(`🎯 Bulk Scraper: Matched selected item "${item.text}"`);
                 return isMatched;
             });
             console.log(`📦 Bulk Scraper: Starting capture for ${subItems.length} selected items.`);
         }
 
         if (subItems.length === 0) {
-            subItems = Array.from(document.querySelectorAll('.units__subitems'));
+            subItems = indexedItems;
+        }
+
+        if (subItems.length === 0) {
+            subItems = Array.from(document.querySelectorAll('.units__subitems')).map(item => {
+                const title = item.querySelector('.units__subitems-title span')?.innerText.trim() || item.innerText.split('\n')[0].trim();
+                const breadcrumb = item.closest('.units__items')?.querySelector('.units__items-title')?.innerText.trim() || '';
+                return {
+                    text: title,
+                    breadcrumb,
+                    el: item,
+                    isSub: true,
+                    isProgramming: item.innerText.toLowerCase().includes('programming') || item.innerText.toLowerCase().includes('grpa')
+                };
+            });
         }
 
         if (subItems.length === 0) {
@@ -220,56 +351,46 @@
             
             // ROBUST CLICKER: Force Sidebar Open and Click Native Node
             window.__iitm_is_bulk_scraping = true; // Shield against autoCloseSidebar
-            const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu, .mobile-menu button, button[aria-label="Menu"]');
-            if (leftToggle) {
-                const isCollapsed = leftToggle.innerHTML?.includes('rotate(180deg)') || document.querySelector('mat-sidenav')?.getAttribute('opened') !== 'true';
-                if (isCollapsed) leftToggle.click();
-            }
-            
-            await new Promise(r => setTimeout(r, 400)); // Let angular physically expand sidebar
-            
-            const isVisible = document.body.contains(item) && item.offsetWidth > 0;
-            if (isVisible) {
-                (item.closest('button') || item).click();
-                if (!itemData.isSub) setTimeout(() => item.querySelector('.mat-expansion-indicator')?.click(), 50);
-            } else {
-                // Rescue block: Re-find fresh DOM node if angular destroyed it in memory
-                const headers = Array.from(document.querySelectorAll('.units__items'));
-                const targetHeader = headers.find(h => h.innerText.includes(breadcrumb));
-                if (targetHeader) {
-                    if (!targetHeader.classList.contains('mat-expanded') && !targetHeader.querySelector('.mat-expansion-panel-content')) {
-                        targetHeader.click();
-                    }
-                    await new Promise(r => setTimeout(r, 300));
-                    const freshSubitems = Array.from(targetHeader.querySelectorAll('.units__subitems'));
-                    const exactNode = freshSubitems.find(s => s.innerText.includes(title));
-                    if (exactNode) (exactNode.closest('button') || exactNode).click();
-                }
-            }
-            // Wait for sidebar title to match selection (Verifies navigation)
             let navigated = false;
-            for (let navW = 0; navW < 30; navW++) {
-                const currentPortalTitle = (document.querySelector('.assignment-title, .title-container, .modules__content-head-title h2')?.innerText || '').trim();
-                // A lax check to see if the title changed or is at least visible
-                if (currentPortalTitle && (currentPortalTitle.toLowerCase().includes(title.toLowerCase()) || title.toLowerCase().includes(currentPortalTitle.toLowerCase()))) {
-                    navigated = true;
-                    // Add an extra small layout breather for stability
-                    await new Promise(r => setTimeout(r, 600));
-                    break;
+            for (let navAttempt = 0; navAttempt < 3 && !navigated; navAttempt++) {
+                const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu, .mobile-menu button, button[aria-label="Menu"]');
+                if (leftToggle) {
+                    const isCollapsed = leftToggle.innerHTML?.includes('rotate(180deg)') || document.querySelector('mat-sidenav')?.getAttribute('opened') !== 'true';
+                    if (isCollapsed) leftToggle.click();
                 }
-                await new Promise(r => setTimeout(r, 250));
-            }
-            if (!navigated) console.warn(`⚠️ [${i+1}] Navigation timer long for "${title}". Proceeding anyway...`);
 
+                await new Promise(r => setTimeout(r, 350));
+
+                const node = findItemNode(itemData, title, breadcrumb);
+                if (node) {
+                    (node.closest('button') || node).click();
+                    if (!itemData.isSub) setTimeout(() => node.querySelector('.mat-expansion-indicator')?.click(), 50);
+                } else {
+                    console.warn(`⚠️ [${i+1}] Could not locate node for "${title}" (attempt ${navAttempt + 1}/3).`);
+                }
+
+                navigated = await waitForNavigation(title, 9000 + (navAttempt * 1500));
+                if (!navigated) {
+                    console.warn(`⚠️ [${i+1}] Navigation mismatch for "${title}" (attempt ${navAttempt + 1}/3). Retrying...`);
+                }
+            }
+
+            if (!navigated) {
+                console.error(`❌ [${i+1}] Could not reliably navigate to "${title}". Skipping this unit to avoid wrong capture.`);
+                continue;
+            }
+
+            const captureToken = `bulk-${Date.now()}-${i}`;
             const capturedData = await new Promise((resolve) => {
                 const handler = (e) => {
+                    if (e.detail?.captureToken && e.detail.captureToken !== captureToken) return;
                     window.removeEventListener('iitm-markdown-captured', handler);
                     resolve(e.detail);
                 };
                 window.addEventListener('iitm-markdown-captured', handler);
                 window.__scraperMode = 'capture';
                 // Trigger actual capture message with real sidebar title
-                chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture', title: title });
+                chrome.runtime.sendMessage({ action: 'triggerScraper', mode: 'capture', title: title, token: captureToken });
                 
                 setTimeout(() => {
                     window.removeEventListener('iitm-markdown-captured', handler);
@@ -281,6 +402,11 @@
             processedDurations.push(durationItem);
             console.log(`✅ [${i+1}] Captured in ${durationItem.toFixed(1)}s`);
             
+            if (capturedData?.titleMismatch) {
+                console.error(`❌ [${i+1}] Capture title mismatch for "${title}". Expected ${capturedData.expectedTitle || 'unknown'}, got ${capturedData.detectedTitle || 'unknown'}. Skipping.`);
+                continue;
+            }
+
             if (zip && capturedData?.markdown) {
                 totalCountProcessed++;
                 const courseFolder = zip.folder((capturedData.course || 'Course').replace(/[^\w\s-]/g, '').trim());
@@ -1173,16 +1299,15 @@
                     // Decide whether to select or deselect based on the FIRST item in range's toggle state? 
                     // Usually, Shift-click ADDS to selection if the range wasn't selected, or preserves state.
                     // Implementation: Toggle ALL items in range to the state of the TARGET item's toggle.
-                    const targetState = !selectedItems.has(item.text);
+                    const targetState = !isItemSelected(item);
                     for (let r = start; r <= end; r++) {
                         const rItem = currentMatches[r];
                         if (rItem && !rItem.actionId && !rItem.url) { // Only select actual assignment items
-                            if (targetState) selectedItems.add(rItem.text);
-                            else selectedItems.delete(rItem.text);
+                            setItemSelected(rItem, targetState);
                         }
                     }
-                    localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
-                    renderResults(items, true);
+                    persistSelectedItems();
+                    renderResults(currentMatches, true);
                     return;
                 }
             }
@@ -1233,11 +1358,10 @@
                     else handleUIToggle(item.actionId);
                 }
             } else {
-                if (selectedItems.has(item.text)) selectedItems.delete(item.text);
-                else selectedItems.add(item.text);
+                toggleItemSelection(item);
                 
                 lastSelectedIndex = currentMatches.indexOf(item);
-                localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
+                persistSelectedItems();
                 renderResults(currentMatches, true);
 
                 // Option: If NOT clicking a checkbox/meta area, just navigate? 
@@ -1322,7 +1446,6 @@
                     isCollapsed = false;
                     collapsedGroups.delete(groupName);
                 }
-                window.__iitm_prev_query = currentQuery;
                 
                 const header = document.createElement('div');
                 header.className = `group-header ${isCollapsed ? 'collapsed' : ''}`;
@@ -1345,11 +1468,10 @@
                     if (selectBtn) {
                         e.preventDefault();
                         e.stopPropagation();
-                        const allNames = groupItems.map(gi => gi.text);
-                        const allInGroupSelected = allNames.every(name => selectedItems.has(name));
-                        if (allInGroupSelected) allNames.forEach(name => selectedItems.delete(name));
-                        else allNames.forEach(name => selectedItems.add(name));
-                        localStorage.setItem('iitm-selected-items', JSON.stringify(Array.from(selectedItems)));
+                        const selectableGroupItems = groupItems.filter(gi => !gi.actionId && !gi.url);
+                        const allInGroupSelected = selectableGroupItems.every(gi => isItemSelected(gi));
+                        selectableGroupItems.forEach(gi => setItemSelected(gi, !allInGroupSelected));
+                        persistSelectedItems();
                         renderResults(items, true);
                         return;
                     }
@@ -1363,7 +1485,7 @@
                 if (!isCollapsed) {
                     groupItems.forEach(item => {
                         currentMatches.push(item);
-                        const isSelectedStored = selectedItems.has(item.text);
+                        const isSelectedStored = isItemSelected(item);
                         const div = document.createElement('div');
                         const isCurrentlySelected = selectedIndex >= 0 && currentMatches.length - 1 === selectedIndex;
                         div.className = `spotlight-item ${isCurrentlySelected ? 'active' : ''}`;
@@ -1390,6 +1512,7 @@
                     });
                 }
             });
+            window.__iitm_prev_query = (input.value || '').toLowerCase().trim();
 
             if (!preserveSelection) selectedIndex = currentMatches.length > 0 ? 0 : -1;
             updateSelection(results.querySelectorAll('.spotlight-item'));
@@ -1572,8 +1695,8 @@
                 if (selectedIndex >= 0) {
                     const itemData = currentMatches[selectedIndex];
                     if (itemData) {
-                        if (selectedItems.has(itemData.text)) selectedItems.delete(itemData.text);
-                        else selectedItems.add(itemData.text);
+                        toggleItemSelection(itemData);
+                        persistSelectedItems();
                         input.oninput(null, true);
                     }
                 }
@@ -1652,8 +1775,8 @@
                 allActions.unshift(
                     { name: `Open "${item.text.substring(0,20)}..."`, key: '↵', run: () => triggerSelection(item) },
                     { name: 'Toggle Selection', key: 'Tab', run: () => {
-                        if (selectedItems.has(item.text)) selectedItems.delete(item.text);
-                        else selectedItems.add(item.text);
+                        toggleItemSelection(item);
+                        persistSelectedItems();
                         input.oninput(null, true); 
                     } },
                     { name: 'Scrape Unit Only', key: 'S', run: () => {
@@ -1733,7 +1856,7 @@
                 spotlight.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
                 chip.classList.add('active');
                 activeFilter = chip.dataset.filter;
-                input.oninput();
+                input.oninput(null, true); // preserveSelection = true when clicking filters
             };
         });
 
@@ -1767,7 +1890,7 @@
                     else if (activeFilter === 'assets') matchesFilter = item.hasAssets;
                     else if (activeFilter === 'command') matchesFilter = item.actionId || bread.includes('system');
                     else if (activeFilter === 'pending') matchesFilter = (isGraded || isGrPA || isQuiz || isExam) && !item.isDone;
-                    else if (activeFilter === 'selected') matchesFilter = selectedItems.has(item.text);
+                    else if (activeFilter === 'selected') matchesFilter = isItemSelected(item);
                     else matchesFilter = false;
                 }
                 
@@ -1801,7 +1924,7 @@
         input.onfocus = () => { 
             updatePlaceholder();
             const items = getItems();
-            renderResults(items); 
+            renderResults(items, true); 
         };
 
         // Populate results immediately on first load

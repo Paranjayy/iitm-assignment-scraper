@@ -36,6 +36,14 @@ chrome.runtime.onInstalled.addListener(() => {
       documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
     });
 
+    // Curriculum Archiver — only shows on the public academics page
+    chrome.contextMenus.create({
+      id: "archiveCurriculum",
+      title: "📚 Archive Full Curriculum (IITM)",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://study.iitm.ac.in/ds/academics.html*"]
+    });
+
     // Capture selection (Only shows when something is highlighted)
     chrome.contextMenus.create({
       id: "sendToNotes",
@@ -163,16 +171,17 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 // Function to execute the scraper
-function executeScaper(tabId, mode = 'single', title = null) {
+function executeScaper(tabId, mode = 'single', title = null, token = null) {
     if (tabId) {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
-        func: (m, t) => { 
+        func: (m, t, tk) => { 
           window.__scraperMode = m; 
           window.__bulkScrapeTitle = t; // New: Pass real sidebar title
+          window.__bulkScrapeToken = tk;
           console.log('IITM Background: Mode set to', m);
         },
-        args: [mode, title]
+        args: [mode, title, token]
       }).then(() => {
         chrome.scripting.executeScript({
           target: { tabId: tabId },
@@ -203,7 +212,7 @@ async function relayToOffscreen(msg) {
 // Listen for messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'triggerScraper' && sender.tab) {
-        executeScaper(sender.tab.id, request.mode || 'single', request.title);
+  executeScaper(sender.tab.id, request.mode || 'single', request.title, request.token || null);
     } else if (request.action === 'syncAce' && sender.tab) {
         chrome.scripting.executeScript({
             target: { tabId: sender.tab.id },
@@ -264,9 +273,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             })
             .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
-    } else if (request.action === 'fetchScores') {
-        fetch('https://score-checker-379619009600.asia-south1.run.app/course_wise')
-            .then(res => res.text())
+    } else if (request.action === 'fetchRelay' && request.url) {
+        const options = {
+            method: request.method || 'GET',
+            headers: request.headers || {}
+        };
+        if (request.body) options.body = request.body;
+
+        fetch(request.url, options)
+            .then(res => {
+                if (res.url.includes('accounts.google.com')) {
+                    throw new Error('Authentication Required. Please log in to the Score Checker first.');
+                }
+                return res.text();
+            })
             .then(html => sendResponse({ success: true, data: html }))
             .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
@@ -276,6 +296,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 });
+
+// Inject the curriculum archiver on-demand (JSZip first, then the scraper)
+function launchCurriculumArchiver(tabId) {
+    // Step 1: inject the already-bundled jszip.min.js (same one used by the portal)
+    chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['jszip.min.js']
+    }).then(() => {
+        // Step 2: inject the curriculum scraper script
+        chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['scripts/curriculum_scraper.js']
+        });
+    }).catch(err => {
+        console.error('[Archiver] Injection failed:', err);
+    });
+}
 
 chrome.action.onClicked.addListener((tab) => {
   executeScaper(tab.id);
@@ -290,5 +327,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     chrome.tabs.sendMessage(tab.id, { action: info.menuItemId });
   } else if (info.menuItemId === "sendToNotes") {
     chrome.tabs.sendMessage(tab.id, { action: "sendToNotes", selectionText: info.selectionText });
+  } else if (info.menuItemId === "archiveCurriculum") {
+    launchCurriculumArchiver(tab.id);
   }
 });
