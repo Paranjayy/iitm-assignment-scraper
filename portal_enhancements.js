@@ -153,6 +153,24 @@
 
     // 5. BULK EXPORT ALL WEEKS (Enhanced with Selection)
     const bulkScrapeAll = async () => {
+        if (window.__iitm_bulk_run_active) {
+            alert('Bulk export is already running. Please wait or cancel the current run.');
+            return;
+        }
+
+        window.__iitm_bulk_run_active = true;
+        window.__iitm_is_bulk_scraping = false;
+
+        const verboseBulkLogs = localStorage.getItem('iitm-bulk-debug') === 'true';
+        const bulkLog = (...args) => { if (verboseBulkLogs) console.log(...args); };
+
+        const staleOverlay = document.getElementById('iitm-bulk-overlay');
+        if (staleOverlay) staleOverlay.remove();
+
+        let overlay = null;
+        let clearSelectionOnExit = false;
+
+        try {
         let subItems = [];
         const zip = typeof JSZip !== 'undefined' ? new JSZip() : null;
         const titleLooksLikeMatch = (expected, current) => {
@@ -227,6 +245,73 @@
             }
             return false;
         };
+        const requestBulkConfirmation = async (unitCount) => {
+            if (document.visibilityState !== 'visible') {
+                console.warn('⚠️ Bulk start ignored because tab is not visible. Activate the tab and try again.');
+                return false;
+            }
+
+            return new Promise((resolve) => {
+                const existing = document.getElementById('iitm-bulk-confirm-overlay');
+                if (existing) existing.remove();
+
+                const modalOverlay = document.createElement('div');
+                modalOverlay.id = 'iitm-bulk-confirm-overlay';
+                modalOverlay.style.cssText = `
+                    position: fixed; inset: 0; z-index: 21000;
+                    background: rgba(0,0,0,0.45);
+                    display: flex; align-items: center; justify-content: center;
+                    backdrop-filter: blur(2px);
+                `;
+
+                const card = document.createElement('div');
+                card.style.cssText = `
+                    width: min(440px, 90vw);
+                    background: #101214;
+                    border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 14px;
+                    box-shadow: 0 24px 80px rgba(0,0,0,0.65);
+                    padding: 18px;
+                    color: #fff;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                `;
+
+                card.innerHTML = `
+                    <div style="font-size:13px; font-weight:800; opacity:0.8; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:10px; color:#db2777;">Bulk Content Pack</div>
+                    <div style="font-size:14px; line-height:1.45; opacity:0.92; margin-bottom:16px;">This will scrape <b>${unitCount}</b> units and bundle them into a ZIP.</div>
+                    <div style="display:flex; justify-content:flex-end; gap:10px;">
+                        <button id="iitm-bulk-confirm-cancel" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); color:#fff; padding:8px 14px; border-radius:9px; cursor:pointer; font-size:12px; font-weight:700;">Cancel</button>
+                        <button id="iitm-bulk-confirm-ok" style="background:#1f9bff; border:none; color:#fff; padding:8px 14px; border-radius:9px; cursor:pointer; font-size:12px; font-weight:700;">Start Bulk Export</button>
+                    </div>
+                `;
+
+                modalOverlay.appendChild(card);
+                document.body.appendChild(modalOverlay);
+
+                let settled = false;
+                const close = (result) => {
+                    if (settled) return;
+                    settled = true;
+                    modalOverlay.remove();
+                    resolve(result);
+                };
+
+                const cancelBtn = card.querySelector('#iitm-bulk-confirm-cancel');
+                const okBtn = card.querySelector('#iitm-bulk-confirm-ok');
+                cancelBtn.onclick = () => close(false);
+                okBtn.onclick = () => close(true);
+                modalOverlay.onclick = (e) => { if (e.target === modalOverlay) close(false); };
+
+                const escHandler = (e) => {
+                    if (e.key === 'Escape') close(false);
+                };
+                document.addEventListener('keydown', escHandler, { once: true, capture: true });
+
+                setTimeout(() => {
+                    if (!settled) close(false);
+                }, 60000);
+            });
+        };
         
         // Force-expand all weeks to ensure items are rendered in DOM
         const weeks = document.querySelectorAll('.units__section');
@@ -234,7 +319,7 @@
             const isExpanded = week.querySelector('.units__subitems'); // If subitems exist, it's probably expanded
             const header = week.querySelector('.units__section-title') || week.querySelector('mat-panel-header');
             if (!isExpanded && header) {
-                console.log('📂 Expanding week:', header.innerText.trim());
+                bulkLog('📂 Expanding week:', header.innerText.trim());
                 header.click();
                 await new Promise(r => setTimeout(r, 600)); // Wait for expansion animation
             }
@@ -246,10 +331,10 @@
         if (selectedItems.size > 0) {
             subItems = indexedItems.filter(item => {
                 const isMatched = isItemSelected(item);
-                if (isMatched) console.log(`🎯 Bulk Scraper: Matched selected item "${item.text}"`);
+                if (isMatched) bulkLog(`🎯 Bulk Scraper: Matched selected item "${item.text}"`);
                 return isMatched;
             });
-            console.log(`📦 Bulk Scraper: Starting capture for ${subItems.length} selected items.`);
+            bulkLog(`📦 Bulk Scraper: Starting capture for ${subItems.length} selected items.`);
         }
 
         if (subItems.length === 0) {
@@ -275,9 +360,11 @@
         }
         
         const count = subItems.length;
-        if (!confirm(`This will scrape ${count} units and bundle them into a ZIP. Proceed?`)) return;
+        const userApproved = await requestBulkConfirmation(count);
+        if (!userApproved) return;
+        clearSelectionOnExit = true;
 
-        const overlay = document.createElement('div');
+        overlay = document.createElement('div');
         overlay.id = 'iitm-bulk-overlay';
         overlay.style.cssText = `
             position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
@@ -347,7 +434,7 @@
             progressBar.style.width = `${((i + 1) / count) * 100}%`;
             etaText.innerText = `ETA: ~${mins > 0 ? mins + 'm ' : ''}${secs}s remaining`;
             
-            console.log(`🚀 [${i+1}/${count}] Beginning ${isProgramming ? 'GrPA' : 'Standard'} Capture: ${title}`);
+            bulkLog(`🚀 [${i+1}/${count}] Beginning ${isProgramming ? 'GrPA' : 'Standard'} Capture: ${title}`);
             
             // ROBUST CLICKER: Force Sidebar Open and Click Native Node
             window.__iitm_is_bulk_scraping = true; // Shield against autoCloseSidebar
@@ -400,7 +487,7 @@
 
             const durationItem = (Date.now() - startTimeItem) / 1000;
             processedDurations.push(durationItem);
-            console.log(`✅ [${i+1}] Captured in ${durationItem.toFixed(1)}s`);
+            bulkLog(`✅ [${i+1}] Captured in ${durationItem.toFixed(1)}s`);
             
             if (capturedData?.titleMismatch) {
                 console.error(`❌ [${i+1}] Capture title mismatch for "${title}". Expected ${capturedData.expectedTitle || 'unknown'}, got ${capturedData.detectedTitle || 'unknown'}. Skipping.`);
@@ -449,14 +536,14 @@
                         masterVideoList += `- **${v.title}**: [Watch on YouTube](${v.url})\n`;
                     });
                 }
-                console.log(`✅ [${i+1}] Capture SUCCESS: "${fullFileName}" (${durationItem}s).`);
+                bulkLog(`✅ [${i+1}] Capture SUCCESS: "${fullFileName}" (${durationItem}s).`);
             } else {
                 console.error(`❌ [${i+1}] Capture FAILED: "${title}" after ${durationItem}s. Skipping to next.`);
             }
         }
         
         const totalDuration = ((Date.now() - startTimeTotal) / 1000).toFixed(1);
-        console.log(`🏁 BULK COMPLETED: Processed ${totalCountProcessed}/${count} items in ${totalDuration}s.`);
+        console.info(`🏁 Bulk completed: ${totalCountProcessed}/${count} items in ${totalDuration}s.`);
         
         if (hasVideos) {
             masterAssetMarkdown += `\n---\n\n` + masterVideoList;
@@ -468,7 +555,7 @@
 
         if (!cancelled && zip && Object.keys(zip.files).length > 0) {
             const files = Object.keys(zip.files).filter(k => !zip.files[k].dir);
-            console.log(`📦 Bulk Scraper: Finalizing ${files.length} items for bundle...`);
+            bulkLog(`📦 Bulk Scraper: Finalizing ${files.length} items for bundle...`);
 
             if (files.length <= 50) {
                 // SMALL BATCH: Direct in-page ZIP generation (High Reliability)
@@ -482,7 +569,7 @@
                     a.download = zipName;
                     document.body.appendChild(a);
                     a.click();
-                    console.log('✅ ZIP Download Triggered:', zipName);
+                    bulkLog('✅ ZIP Download Triggered:', zipName);
                     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 15000);
                     overlay.innerHTML = `<div style="font-size: 32px; font-weight: 800; color: #4caf50;">✅ DONE!</div><div style="margin-top:20px; opacity:0.6;">${files.length} items saved.</div>`;
                 } catch (err) {
@@ -514,8 +601,15 @@
             console.warn('⚠️ Bulk Scraper: No files to zip or cancelled.');
             overlay.remove();
         }
-        selectedItems.clear();
-        window.__iitm_is_bulk_scraping = false;
+        } catch (err) {
+            console.error('❌ Bulk export aborted due to an unexpected error:', err);
+            alert('Bulk export hit an unexpected error. Please retry.');
+        } finally {
+            if (clearSelectionOnExit) selectedItems.clear();
+            if (overlay && document.body.contains(overlay)) overlay.remove();
+            window.__iitm_is_bulk_scraping = false;
+            window.__iitm_bulk_run_active = false;
+        }
     };
 
     let isDarkMode = localStorage.getItem('iitm-dark-mode-enabled') === 'true';

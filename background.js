@@ -212,7 +212,9 @@ async function relayToOffscreen(msg) {
 // Listen for messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'triggerScraper' && sender.tab) {
-  executeScaper(sender.tab.id, request.mode || 'single', request.title, request.token || null);
+        executeScaper(sender.tab.id, request.mode || 'single', request.title, request.token || null);
+        sendResponse({ success: true });
+        return true;
     } else if (request.action === 'syncAce' && sender.tab) {
         chrome.scripting.executeScript({
             target: { tabId: sender.tab.id },
