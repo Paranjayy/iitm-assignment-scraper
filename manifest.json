@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IITM Assignment Scraper",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "Adds a button to download IITM online degree assignments as a clean Markdown file.",
   "permissions": [
     "activeTab",
@@ -14,6 +14,7 @@
   ],
   "host_permissions": [
     "https://seek.onlinedegree.iitm.ac.in/*",
+    "https://seek.study.iitm.ac.in/*",
     "https://ds.study.iitm.ac.in/*",
     "https://study.iitm.ac.in/ds/*",
     "*://score-checker-379619009600.asia-south1.run.app/*"
@@ -25,6 +26,7 @@
     {
       "matches": [
         "*://seek.onlinedegree.iitm.ac.in/*",
+        "*://seek.study.iitm.ac.in/*",
         "*://ds.study.iitm.ac.in/*",
         "*://score-checker-379619009600.asia-south1.run.app/*"
       ],
