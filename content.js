@@ -100,14 +100,10 @@
     // AUTO-UNLOCK: Request an unlock as soon as we load
     chrome.runtime.sendMessage({ action: 'unlockPage' });
 
-    // GRPA AUTO-START: Automatically click checkbox + Start Assignment button
-    // Watches for the GrPA/assessment landing page and starts the assessment automatically
-    const autoStartGrPA = () => {
-        // Only run on assignment start pages (GrPA or graded assignment landing)
-        const isStartPage = document.querySelector('app-programming-assignment-view, app-assessment-start-page, app-assessments-view');
-        if (!isStartPage) return;
-
-        // Find the Angular checkbox component (app-checkbox)
+    // AUTO-START: Automatically click checkbox + Start button on ANY assignment landing page
+    // Works for GrPA, graded assignments, non-graded, practice, quizzes — anything with the checkbox gate
+    const autoStartAssignment = () => {
+        // Look for the Angular checkbox component (app-checkbox) — present on ALL assignment start pages
         const angularCheckbox = document.querySelector('app-checkbox input[type="checkbox"]');
         const angularLabel = document.querySelector('app-checkbox label[for]');
 
@@ -126,20 +122,20 @@
             }
         }
 
-        // Find the Start Assessment button
+        // Find the Start button (could say "Start Assessment", "Start Assignment", etc.)
         const startBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-            const label = btn.getAttribute('aria-label') || btn.textContent.toLowerCase();
-            return label.includes('start assessment') || label.includes('start assignment');
+            const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
+            return label.includes('start assessment') || label.includes('start assignment') || label.includes('start');
         });
 
-        if (startBtn) {
+        if (startBtn && angularCheckbox?.checked) {
             // Poll until the button is no longer disabled (Angular processes checkbox state async)
             let attempts = 0;
             const tryClick = setInterval(() => {
                 attempts++;
                 if (!startBtn.disabled && startBtn.getAttribute('aria-disabled') !== 'true') {
                     startBtn.click();
-                    console.log('[IITM Extension] 🚀 Auto-clicked Start Assessment button');
+                    console.log('[IITM Extension] 🚀 Auto-clicked Start button');
                     clearInterval(tryClick);
                 } else if (attempts > 20) {
                     clearInterval(tryClick);
@@ -149,15 +145,15 @@
     };
 
     // Run immediately and also watch for DOM changes (Angular loads content dynamically)
-    autoStartGrPA();
-    const grpaObserver = new MutationObserver(() => {
-        autoStartGrPA();
+    autoStartAssignment();
+    const assignmentObserver = new MutationObserver(() => {
+        autoStartAssignment();
     });
-    grpaObserver.observe(document.body, { childList: true, subtree: true });
+    assignmentObserver.observe(document.body, { childList: true, subtree: true });
 
-    // Stop observer after 30 seconds to avoid performance impact
+    // Stop observer after 60 seconds (longer since user may navigate between pages)
     setTimeout(() => {
-        grpaObserver.disconnect();
-        console.log('[IITM Extension] GRPA auto-start observer stopped');
-    }, 30000);
+        assignmentObserver.disconnect();
+        console.log('[IITM Extension] Auto-start observer stopped');
+    }, 60000);
 })();

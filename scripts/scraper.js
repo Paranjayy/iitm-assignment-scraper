@@ -779,7 +779,7 @@
                     }
                 }
 
-                const questionBlocks = document.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question');
+                const questionBlocks = document.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question, .mcq-content, .question-content');
                 console.log(`IITM Scraper: Found ${questionBlocks.length} question blocks.`);
                 scrapeMetrics.totalQuestions = questionBlocks.length;
                 scrapeMetrics.evaluatedQuestions = 0;
@@ -816,16 +816,77 @@
                 }
 
                 if (questionBlocks.length === 0 && !ytIframe) {
-                    // Fallback to full content if nothing structured found
-                    // New portal: use .course-content .scrollable-view (excludes sidebar)
-                    // Old portal: use mat-sidenav-content or main with sidebar removed
-                    const mainContent = document.querySelector('.course-content .scrollable-view, .unit-view, .scrollable-view') ||
-                                         document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content') || document.body;
-                    const clone = mainContent.cloneNode(true);
-                    // Remove sidebars and known noise (both old and new portal selectors)
-                    clone.querySelectorAll('mat-sidenav, app-header, app-footer, .header, .footer, script, noscript, .units__list, .nav-container, .app-side-nav, .side-nav, app-side-nav, nav.app-bar, .app-bar').forEach(el => el.remove());
-                    processNode(clone);
-                    markdown += turndownService.turndown(clone.innerHTML);
+                    // Check for PAGINATED question UI (new portal: 1 question at a time with Next/Prev)
+                    // Detect by looking for "Question X / Y" text or navigation dots
+                    const questionCounter = document.body.innerText.match(/Question\s+(\d+)\s*\/\s*(\d+)/i);
+                    const nextBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                        const text = (btn.textContent || '').toLowerCase().trim();
+                        return text.includes('next') && !btn.disabled;
+                    });
+                    const navDots = document.querySelectorAll('.question-nav-dot, .dot-item, [class*="step-indicator"] button, [class*="pagination"] button');
+
+                    if (questionCounter && (nextBtn || navDots.length > 0)) {
+                        // PAGINATED MODE: Navigate through questions one at a time
+                        const totalQ = parseInt(questionCounter[2]) || 0;
+                        console.log(`[IITM Scraper] Detected paginated UI: ${totalQ} questions. Navigating through each...`);
+
+                        for (let q = 0; q < totalQ; q++) {
+                            await new Promise(r => setTimeout(r, 400)); // Wait for question to render
+
+                            // Capture current question content
+                            const qContent = document.querySelector('.question-content, .mcq-content, .pa-question, .assessment-question, .question-body');
+                            const qText = document.querySelector('.question-text, .mcq-question-text, .qt-question');
+
+                            // Also try the main content area for the question
+                            const mainQ = qContent || qText || document.querySelector('.unit-body, .assessment-body');
+
+                            if (mainQ) {
+                                const qClone = mainQ.cloneNode(true);
+                                // Clean up navigation elements from the clone
+                                qClone.querySelectorAll('button, .nav-dots, .question-nav, .pagination').forEach(el => el.remove());
+                                processNode(qClone);
+                                const qMarkdown = turndownService.turndown(qClone.innerHTML).trim();
+                                if (qMarkdown) {
+                                    markdown += `### Question ${q + 1}\n\n${qMarkdown}\n\n---\n\n`;
+                                }
+                            } else {
+                                // Fallback: grab everything in the content area
+                                const contentArea = document.querySelector('.course-content .scrollable-view, .unit-view, .scrollable-view');
+                                if (contentArea) {
+                                    const clone = contentArea.cloneNode(true);
+                                    clone.querySelectorAll('.app-side-nav, .side-nav, nav, button, .nav-dots').forEach(el => el.remove());
+                                    processNode(clone);
+                                    const fallbackMd = turndownService.turndown(clone.innerHTML).trim();
+                                    if (fallbackMd) {
+                                        markdown += `### Question ${q + 1}\n\n${fallbackMd}\n\n---\n\n`;
+                                    }
+                                }
+                            }
+
+                            // Click Next button if not on last question
+                            if (q < totalQ - 1 && nextBtn) {
+                                const freshNextBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                                    const text = (btn.textContent || '').toLowerCase().trim();
+                                    return text.includes('next') && !btn.disabled;
+                                });
+                                if (freshNextBtn) {
+                                    freshNextBtn.click();
+                                    await new Promise(r => setTimeout(r, 300)); // Wait for next question to load
+                                }
+                            }
+                        }
+                    } else {
+                        // No structured questions found — fallback to full content capture
+                        // New portal: use .course-content .scrollable-view (excludes sidebar)
+                        // Old portal: use mat-sidenav-content or main with sidebar removed
+                        const mainContent = document.querySelector('.course-content .scrollable-view, .unit-view, .scrollable-view') ||
+                                             document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content') || document.body;
+                        const clone = mainContent.cloneNode(true);
+                        // Remove sidebars and known noise (both old and new portal selectors)
+                        clone.querySelectorAll('mat-sidenav, app-header, app-footer, .header, .footer, script, noscript, .units__list, .nav-container, .app-side-nav, .side-nav, app-side-nav, nav.app-bar, .app-bar').forEach(el => el.remove());
+                        processNode(clone);
+                        markdown += turndownService.turndown(clone.innerHTML);
+                    }
                 } else {
                     questionBlocks.forEach((block, index) => {
                         let questionEvaluated = false;
