@@ -210,7 +210,8 @@
             console.log("Scraping started...");
             
             // Check if we are in a Programming Assignment (GrPA)
-            const progContainer = document.querySelector('app-programming-code-editor');
+            // New portal uses app-programming-assignment-view, old uses app-programming-code-editor
+            const progContainer = document.querySelector('app-programming-assignment-view, app-programming-code-editor');
             
             if (progContainer) {
                 return scrapeProgrammingAssignment();
@@ -245,14 +246,13 @@
 
         function scrapeProgrammingAssignment() {
             const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
-            const title = document.querySelector('.programming-code-editor-container .title')?.innerText || 
+            const title = document.querySelector('.programming-code-editor-container .title')?.innerText ||
+                          document.querySelector('.pa-code-editor .toolbar')?.closest('app-programming-assignment-view')?.querySelector('.title-row .title')?.innerText ||
                           (isNewPortal
                               ? (document.querySelector('.child-row.selected .child-title')?.innerText || document.querySelector('.title-row .title')?.innerText)
                               : document.querySelector('.units__subitems-title span')?.innerText
                           ) || "GrPA_Assignment";
-            // The rest of the GrPA scraping logic would go here,
-            // but for now, we'll just return the title.
-            // This function will be further developed.
+            console.log(`[GRPA] Detected programming assignment: ${title}`);
             return title;
         }
 
@@ -482,6 +482,7 @@
                     
                     // DEEP LOCKED CHECK: If the tab itself is disabled/locked, do not attempt to open it.
                     // This prevents ghosting content from the previous tab (the Week 6 issue you saw).
+                    // New portal uses aria-disabled="true" and class "disabled"; old portal uses hasAttribute('disabled')
                     const isDisabled = currentBtn.classList.contains('disabled') || currentBtn.hasAttribute('disabled') || currentBtn.getAttribute('aria-disabled') === 'true';
                     if (isDisabled) {
                         console.warn(`  └─ 🔒 Tab "${tabName}" is locked (disabled by portal).`);
@@ -616,8 +617,10 @@
                             console.log(`  └─ 📄 Capturing pane content...`);
                             const leftContent = document.querySelector('.left-content');
                             const rightPanel = document.querySelector('.right-panel');
+                            const paQuestion = document.querySelector('.pa-question');
                             
-                            const contentSource = leftContent || document.querySelector('.mat-tab-body-active .mat-mdc-card-content, .mat-tab-body-active .problem-content, .mat-tab-body-active');
+                            // New portal: try .pa-question first, then fallback to .left-content
+                            const contentSource = paQuestion || leftContent || document.querySelector('.mat-tab-body-active .mat-mdc-card-content, .mat-tab-body-active .problem-content, .mat-tab-body-active');
                             if (contentSource) {
                                 const clone = await processNode(contentSource.cloneNode(true));
                                 // SCRUB: We only remove UI elements. WE DO NOT remove <pre> blocks anymore 
@@ -651,8 +654,8 @@
                                     await syncAce();
                                     
                                     // Find ALL editors. Scoped to either the active tab body OR the right-panel submission area.
-                                    // NO app-code-editor to prevent the wrapper node from returning duplicated values.
-                                    const editorNodes = Array.from(document.querySelectorAll('.mat-tab-body-active .ace_editor, .right-panel .ace_editor'));
+                                    // New portal uses app-code-editor > .ace-container; old uses .ace_editor directly
+                                    const editorNodes = Array.from(document.querySelectorAll('.mat-tab-body-active .ace_editor, .mat-tab-body-active app-code-editor .ace-container, .right-panel .ace_editor, .pa-code-editor .ace_editor'));
                                     
                                     // Filter for visibility and uniqueness
                                     const visibleEditors = editorNodes.filter(el => {
