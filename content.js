@@ -101,34 +101,50 @@
     chrome.runtime.sendMessage({ action: 'unlockPage' });
 
     // GRPA AUTO-START: Automatically click checkbox + Start Assignment button
-    // Watches for the GrPA landing page and starts the assessment automatically
+    // Watches for the GrPA/assessment landing page and starts the assessment automatically
     const autoStartGrPA = () => {
-        // Only run on GrPA pages (programming assignment view)
-        if (!document.querySelector('app-programming-assignment-view')) return;
+        // Only run on assignment start pages (GrPA or graded assignment landing)
+        const isStartPage = document.querySelector('app-programming-assignment-view, app-assessment-start-page, app-assessments-view');
+        if (!isStartPage) return;
 
-        // Look for the checkbox "I have read and agree to the assessment guidelines"
-        const checkbox = document.querySelector('input[type="checkbox"]');
-        const checkboxLabel = Array.from(document.querySelectorAll('label, span')).find(el =>
-            el.textContent.toLowerCase().includes('i have read') || el.textContent.toLowerCase().includes('assessment guidelines')
-        );
+        // Find the Angular checkbox component (app-checkbox)
+        const angularCheckbox = document.querySelector('app-checkbox input[type="checkbox"]');
+        const angularLabel = document.querySelector('app-checkbox label[for]');
 
-        if (checkbox && !checkbox.checked) {
-            checkbox.click();
-            console.log('[IITM Extension] ✅ Auto-checked assessment guidelines checkbox');
+        if (angularCheckbox && !angularCheckbox.checked) {
+            // Click the label (Angular's app-checkbox listens on the label, not the raw input)
+            if (angularLabel) {
+                angularLabel.click();
+                console.log('[IITM Extension] ✅ Auto-clicked assessment guidelines label');
+            } else {
+                // Fallback: dispatch input + change events on the raw checkbox
+                angularCheckbox.checked = true;
+                angularCheckbox.dispatchEvent(new Event('input', { bubbles: true }));
+                angularCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                angularCheckbox.dispatchEvent(new Event('click', { bubbles: true }));
+                console.log('[IITM Extension] ✅ Auto-checked checkbox via events');
+            }
         }
 
-        // Look for "Start Assignment" button
+        // Find the Start Assessment button
         const startBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-            const text = btn.textContent.toLowerCase().trim();
-            return text.includes('start assignment') || text.includes('start');
+            const label = btn.getAttribute('aria-label') || btn.textContent.toLowerCase();
+            return label.includes('start assessment') || label.includes('start assignment');
         });
 
-        if (startBtn && !startBtn.disabled) {
-            // Small delay to let Angular process the checkbox state
-            setTimeout(() => {
-                startBtn.click();
-                console.log('[IITM Extension] 🚀 Auto-clicked Start Assignment button');
-            }, 300);
+        if (startBtn) {
+            // Poll until the button is no longer disabled (Angular processes checkbox state async)
+            let attempts = 0;
+            const tryClick = setInterval(() => {
+                attempts++;
+                if (!startBtn.disabled && startBtn.getAttribute('aria-disabled') !== 'true') {
+                    startBtn.click();
+                    console.log('[IITM Extension] 🚀 Auto-clicked Start Assessment button');
+                    clearInterval(tryClick);
+                } else if (attempts > 20) {
+                    clearInterval(tryClick);
+                }
+            }, 200);
         }
     };
 

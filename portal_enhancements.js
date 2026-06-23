@@ -2511,17 +2511,45 @@
             list.insertBefore(card, list.firstChild);
         }
 
-        // Gather Stats accurately from the sidebar elements
-        let subItems = Array.from(document.querySelectorAll(sidebarSubItemSelector()));
-        if (subItems.length === 0) {
-            subItems = Array.from(document.querySelectorAll('app-course-unit-item'));
-        }
+        // Gather Stats - Try portal's built-in summary first (works even with collapsed weeks)
+        // Falls back to counting individual items if summary not found
         let stats = {
             videos: 0, totalVideos: 0,
             graded: 0, totalGraded: 0,
             grpa: 0, totalGrpa: 0,
             quizzes: 0, totalQuizzes: 0
         };
+
+        // NEW PORTAL: Parse the portal's own summary from the sidebar header
+        // Shows like "🎥 Videos: 0/27  📝 Graded: 0/2  💻 GrPA/GA: 0/10  🏆 Quizzes: 0/0"
+        const summaryEl = document.querySelector('.graded-prog-completion, .progress-summary, .sidebar-summary');
+        const summaryText = summaryEl ? summaryEl.innerText : document.querySelector('.side-nav-content')?.innerText || '';
+        
+        const parseSummary = (label) => {
+            const regex = new RegExp(label + '[:\\s]*(\\d+)\\s*/\\s*(\\d+)', 'i');
+            const match = summaryText.match(regex);
+            if (match) return { done: parseInt(match[1]) || 0, total: parseInt(match[2]) || 0 };
+            return null;
+        };
+
+        const videoSummary = parseSummary('Videos');
+        const gradedSummary = parseSummary('Graded');
+        const grpaSummary = parseSummary('GrPA/GA');
+        const quizSummary = parseSummary('Quizzes');
+
+        if (videoSummary || gradedSummary || grpaSummary || quizSummary) {
+            // Use portal's own summary (accurate even with collapsed weeks)
+            if (videoSummary) { stats.videos = videoSummary.done; stats.totalVideos = videoSummary.total; }
+            if (gradedSummary) { stats.graded = gradedSummary.done; stats.totalGraded = gradedSummary.total; }
+            if (grpaSummary) { stats.grpa = grpaSummary.done; stats.totalGrpa = grpaSummary.total; }
+            if (quizSummary) { stats.quizzes = quizSummary.done; stats.totalQuizzes = quizSummary.total; }
+            console.log('[IITM Progress] Using portal summary:', stats);
+        } else {
+            // FALLBACK: Count individual items (only works for expanded weeks)
+            let subItems = Array.from(document.querySelectorAll(sidebarSubItemSelector()));
+            if (subItems.length === 0) {
+                subItems = Array.from(document.querySelectorAll('app-course-unit-item'));
+            }
         
         subItems.forEach(item => {
             const t = item.innerText.toLowerCase();
@@ -2565,6 +2593,7 @@
                 if (isDone) stats.quizzes++;
             }
         });
+        } // end fallback else
 
         const totalPoints = (stats.totalGraded + stats.totalGrpa) || 1;
         const totalDone = stats.graded + stats.grpa;

@@ -761,7 +761,9 @@
                 markdown += `---\n\n`;
 
                 // Try to find the container for questions
-                const bodyContent = document.querySelector('.gcb-assessment-body, mat-sidenav-content, .assignment-container, .question-container-parent, .course-content .scrollable-view');
+                // New portal: .course-content .scrollable-view or .unit-view (excludes sidebar)
+                // Old portal: .gcb-assessment-body, mat-sidenav-content, etc.
+                const bodyContent = document.querySelector('.unit-view, .course-content .scrollable-view, .gcb-assessment-body, mat-sidenav-content, .assignment-container, .question-container-parent');
                 if (bodyContent) {
                     const introClone = bodyContent.cloneNode(true);
 
@@ -815,10 +817,13 @@
 
                 if (questionBlocks.length === 0 && !ytIframe) {
                     // Fallback to full content if nothing structured found
-                    const mainContent = document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content, .course-content .scrollable-view') || document.body;
+                    // New portal: use .course-content .scrollable-view (excludes sidebar)
+                    // Old portal: use mat-sidenav-content or main with sidebar removed
+                    const mainContent = document.querySelector('.course-content .scrollable-view, .unit-view, .scrollable-view') ||
+                                         document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content') || document.body;
                     const clone = mainContent.cloneNode(true);
-                    // Remove sidebars and known noise
-                    clone.querySelectorAll('mat-sidenav, app-header, app-footer, .header, .footer, script, noscript, .units__list, .nav-container').forEach(el => el.remove());
+                    // Remove sidebars and known noise (both old and new portal selectors)
+                    clone.querySelectorAll('mat-sidenav, app-header, app-footer, .header, .footer, script, noscript, .units__list, .nav-container, .app-side-nav, .side-nav, app-side-nav, nav.app-bar, .app-bar').forEach(el => el.remove());
                     processNode(clone);
                     markdown += turndownService.turndown(clone.innerHTML);
                 } else {
