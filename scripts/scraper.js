@@ -412,7 +412,8 @@
                 });
             };
 
-            const initialTabs = document.querySelectorAll('app-tab-bar .tab-item');
+            // New portal may use different tab selectors
+            const initialTabs = document.querySelectorAll('app-tab-bar .tab-item, .assignment-tabs .tab-item, .tab-bar .tab-item, [role="tablist"] [role="tab"]');
             const transcriptCues = document.querySelectorAll('.transcript .cue');
             const ytIframe = document.querySelector('iframe#player');
             
@@ -517,9 +518,10 @@
                     await syncAce();
 
                     try {
-                        if (cleanTabName === 'testcases') {
+                        if (cleanTabName === 'testcases' || cleanTabName.includes('test')) {
                             console.log(`  └─ ⚙️ Parsing Test Case Subgroups...`);
-                            const testTypes = document.querySelectorAll('.test-case-type-block');
+                            // New portal may use different selectors for test case type blocks
+                            const testTypes = document.querySelectorAll('.test-case-type-block, .test-group-btn, .test-case-group, .case-type-block, .test-tab-item');
                             if (testTypes.length > 0) {
                                 let seenContent = new Set();
                                 for (const typeBtn of testTypes) {
@@ -557,7 +559,8 @@
                                         }
                                     }
 
-                                    const caseButtons = Array.from(document.querySelectorAll('.case-btn'));
+                                    // New portal may use different selectors for case buttons
+                                    const caseButtons = Array.from(document.querySelectorAll('.case-btn, .case-tab, .test-case-btn, .case-item, [role="tab"]'));
                                     console.log(`    │  └─ Found ${caseButtons.length} cases in this group.`);
                                     
                                     let typeMarkdown = `### ${typeName}\n\n`;
@@ -570,8 +573,9 @@
                                         const caseName = currentCaseBtn.innerText.trim();
                                         console.log(`    │     - Processing Case ${j+1}/${caseButtons.length}: ${caseName}`);
                                         
-                                        const oldContent = document.querySelector('.test-case-block-content')?.innerText;
-                                        const isCaseActive = currentCaseBtn.classList.contains('active') || currentCaseBtn.getAttribute('aria-selected') === 'true';
+                                        // New portal may use different content selectors
+                                        const oldContent = (document.querySelector('.test-case-block-content, .test-case-detail, .case-content, .test-case-body'))?.innerText;
+                                        const isCaseActive = currentCaseBtn.classList.contains('active') || currentCaseBtn.getAttribute('aria-selected') === 'true' || currentCaseBtn.classList.contains('selected');
                                         
                                         currentCaseBtn.click();
                                         
@@ -583,11 +587,12 @@
                                             }
                                         }
                                         
-                                        const currentCaseBlocks = document.querySelectorAll('.test-case-block');
+                                        // New portal may use different selectors for test case blocks
+                                        const currentCaseBlocks = document.querySelectorAll('.test-case-block, .test-case-item, .case-detail-block, .test-detail');
                                         let caseHeaderAdded = false;
                                         currentCaseBlocks.forEach(block => {
-                                            const titleText = block.querySelector('.test-case-block-title')?.innerText.trim();
-                                            const contentText = block.querySelector('.test-case-block-content')?.innerText.trim();
+                                            const titleText = (block.querySelector('.test-case-block-title, .case-label, .test-label, .detail-title'))?.innerText.trim();
+                                            const contentText = (block.querySelector('.test-case-block-content, .case-value, .test-value, .detail-content'))?.innerText.trim();
                                             if (titleText && contentText) {
                                                 const fingerPrint = `${titleText}:${contentText}`;
                                                 if (!seenContent.has(fingerPrint)) {
@@ -607,10 +612,20 @@
                                 }
                             } else {
                                 console.log(`  └─ 🗒️ No subgroup buttons. Standard content dump...`);
-                                const leftContent = document.querySelector('.left-content');
+                                // Try multiple content sources for the new portal
+                                const leftContent = document.querySelector('.left-content, .test-case-container, .test-cases-view, .assignment-content, .content-panel');
                                 if (leftContent) {
                                     const clone = await processNode(leftContent.cloneNode(true));
+                                    clone.querySelectorAll('app-tab-bar, button, .nav-dots, .pagination').forEach(el => el.remove());
                                     markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                                } else {
+                                    // Fallback: capture everything in the main content area
+                                    const mainContent = document.querySelector('.unit-body, .assessment-body, .scrollable-view, main');
+                                    if (mainContent) {
+                                        const clone = await processNode(mainContent.cloneNode(true));
+                                        clone.querySelectorAll('.app-side-nav, .side-nav, nav, button, .nav-dots').forEach(el => el.remove());
+                                        markdown += turndownService.turndown(clone.innerHTML) + '\n\n';
+                                    }
                                 }
                             }
                         } else {

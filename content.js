@@ -100,60 +100,6 @@
     // AUTO-UNLOCK: Request an unlock as soon as we load
     chrome.runtime.sendMessage({ action: 'unlockPage' });
 
-    // AUTO-START: Automatically click checkbox + Start button on ANY assignment landing page
-    // Works for GrPA, graded assignments, non-graded, practice, quizzes — anything with the checkbox gate
-    const autoStartAssignment = () => {
-        // Look for the Angular checkbox component (app-checkbox) — present on ALL assignment start pages
-        const angularCheckbox = document.querySelector('app-checkbox input[type="checkbox"]');
-        const angularLabel = document.querySelector('app-checkbox label[for]');
-
-        if (angularCheckbox && !angularCheckbox.checked) {
-            // Click the label (Angular's app-checkbox listens on the label, not the raw input)
-            if (angularLabel) {
-                angularLabel.click();
-                console.log('[IITM Extension] ✅ Auto-clicked assessment guidelines label');
-            } else {
-                // Fallback: dispatch input + change events on the raw checkbox
-                angularCheckbox.checked = true;
-                angularCheckbox.dispatchEvent(new Event('input', { bubbles: true }));
-                angularCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-                angularCheckbox.dispatchEvent(new Event('click', { bubbles: true }));
-                console.log('[IITM Extension] ✅ Auto-checked checkbox via events');
-            }
-        }
-
-        // Find the Start button (could say "Start Assessment", "Start Assignment", etc.)
-        const startBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-            const label = (btn.getAttribute('aria-label') || btn.textContent || '').toLowerCase();
-            return label.includes('start assessment') || label.includes('start assignment') || label.includes('start');
-        });
-
-        if (startBtn && angularCheckbox?.checked) {
-            // Poll until the button is no longer disabled (Angular processes checkbox state async)
-            let attempts = 0;
-            const tryClick = setInterval(() => {
-                attempts++;
-                if (!startBtn.disabled && startBtn.getAttribute('aria-disabled') !== 'true') {
-                    startBtn.click();
-                    console.log('[IITM Extension] 🚀 Auto-clicked Start button');
-                    clearInterval(tryClick);
-                } else if (attempts > 20) {
-                    clearInterval(tryClick);
-                }
-            }, 200);
-        }
-    };
-
-    // Run immediately and also watch for DOM changes (Angular loads content dynamically)
-    autoStartAssignment();
-    const assignmentObserver = new MutationObserver(() => {
-        autoStartAssignment();
-    });
-    assignmentObserver.observe(document.body, { childList: true, subtree: true });
-
-    // Stop observer after 60 seconds (longer since user may navigate between pages)
-    setTimeout(() => {
-        assignmentObserver.disconnect();
-        console.log('[IITM Extension] Auto-start observer stopped');
-    }, 60000);
+    // AUTO-START: Removed from page load — only triggered when user clicks Export
+    // (User needs to read guidelines first before starting the assignment)
 })();

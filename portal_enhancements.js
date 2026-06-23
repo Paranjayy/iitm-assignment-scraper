@@ -2543,7 +2543,6 @@
             if (gradedSummary) { stats.graded = gradedSummary.done; stats.totalGraded = gradedSummary.total; }
             if (grpaSummary) { stats.grpa = grpaSummary.done; stats.totalGrpa = grpaSummary.total; }
             if (quizSummary) { stats.quizzes = quizSummary.done; stats.totalQuizzes = quizSummary.total; }
-            console.log('[IITM Progress] Using portal summary:', stats);
         } else {
             // FALLBACK: Count individual items (only works for expanded weeks)
             let subItems = Array.from(document.querySelectorAll(sidebarSubItemSelector()));
