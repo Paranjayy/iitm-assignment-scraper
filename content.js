@@ -99,4 +99,49 @@
 
     // AUTO-UNLOCK: Request an unlock as soon as we load
     chrome.runtime.sendMessage({ action: 'unlockPage' });
+
+    // GRPA AUTO-START: Automatically click checkbox + Start Assignment button
+    // Watches for the GrPA landing page and starts the assessment automatically
+    const autoStartGrPA = () => {
+        // Only run on GrPA pages (programming assignment view)
+        if (!document.querySelector('app-programming-assignment-view')) return;
+
+        // Look for the checkbox "I have read and agree to the assessment guidelines"
+        const checkbox = document.querySelector('input[type="checkbox"]');
+        const checkboxLabel = Array.from(document.querySelectorAll('label, span')).find(el =>
+            el.textContent.toLowerCase().includes('i have read') || el.textContent.toLowerCase().includes('assessment guidelines')
+        );
+
+        if (checkbox && !checkbox.checked) {
+            checkbox.click();
+            console.log('[IITM Extension] ✅ Auto-checked assessment guidelines checkbox');
+        }
+
+        // Look for "Start Assignment" button
+        const startBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+            const text = btn.textContent.toLowerCase().trim();
+            return text.includes('start assignment') || text.includes('start');
+        });
+
+        if (startBtn && !startBtn.disabled) {
+            // Small delay to let Angular process the checkbox state
+            setTimeout(() => {
+                startBtn.click();
+                console.log('[IITM Extension] 🚀 Auto-clicked Start Assignment button');
+            }, 300);
+        }
+    };
+
+    // Run immediately and also watch for DOM changes (Angular loads content dynamically)
+    autoStartGrPA();
+    const grpaObserver = new MutationObserver(() => {
+        autoStartGrPA();
+    });
+    grpaObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Stop observer after 30 seconds to avoid performance impact
+    setTimeout(() => {
+        grpaObserver.disconnect();
+        console.log('[IITM Extension] GRPA auto-start observer stopped');
+    }, 30000);
 })();
