@@ -28,6 +28,7 @@
         "*://seek.onlinedegree.iitm.ac.in/*",
         "*://seek.study.iitm.ac.in/*",
         "*://ds.study.iitm.ac.in/*",
+        "*://study.iitm.ac.in/*",
         "*://score-checker-379619009600.asia-south1.run.app/*"
       ],
       "js": ["turndown.js", "jszip.min.js", "content.js", "portal_enhancements.js"],
