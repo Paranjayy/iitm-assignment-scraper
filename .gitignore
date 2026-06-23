@@ -54,3 +54,6 @@ logo.jpg
 logo.jpeg
 *.svg new doms.md\niitm-extension-*.zip\nnode_modules/\ndist/\nraycast/
 raycast/node_modules
+
+.entire/
+.gemini/

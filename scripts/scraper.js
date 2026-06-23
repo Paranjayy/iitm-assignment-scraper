@@ -56,6 +56,7 @@
         const getCurrentPageTitle = () => {
             return (
                 document.querySelector('.programming-code-editor-container .title')?.innerText ||
+                document.querySelector('.title-row .title')?.innerText ||
                 document.querySelector('.left-content .assignment-title')?.innerText ||
                 document.querySelector('.assignment-title')?.innerText ||
                 document.querySelector('.title-container')?.innerText ||
@@ -112,7 +113,8 @@
         };
 
         const inferTopicDeterministically = () => {
-            const source = `${assignmentTitle || ''} ${detectedWeek || ''} ${document.querySelector('.modules__content-head-title')?.innerText || ''}`.toLowerCase();
+            const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
+            const source = `${assignmentTitle || ''} ${detectedWeek || ''} ${document.querySelector(isNewPortal ? '.title-row .title' : '.modules__content-head-title')?.innerText || ''}`.toLowerCase();
             const weekNum = (detectedWeek || assignmentTitle || '').match(/week\s*(\d+)/i)?.[1];
 
             const keywords = [
@@ -218,8 +220,10 @@
         }
 
         function scrapeRegularAssignment() {
-            // FALLBACK: For Mathematics/Regular Assignments
-            const title = document.querySelector('.units__subitems-title span')?.innerText || "Assignment";
+            const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
+            const title = isNewPortal
+                ? (document.querySelector('.child-row.selected .child-title')?.innerText || document.querySelector('.title-row .title')?.innerText || "Assignment")
+                : (document.querySelector('.units__subitems-title span')?.innerText || "Assignment");
             const questions = Array.from(document.querySelectorAll('.question-container, mat-card, .mcq-question'));
             
             let markdown = `# ${title}\n\n`;
@@ -240,9 +244,12 @@
         }
 
         function scrapeProgrammingAssignment() {
+            const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
             const title = document.querySelector('.programming-code-editor-container .title')?.innerText || 
-                          document.querySelector('.units__subitems-title span')?.innerText || 
-                          "GrPA_Assignment";
+                          (isNewPortal
+                              ? (document.querySelector('.child-row.selected .child-title')?.innerText || document.querySelector('.title-row .title')?.innerText)
+                              : document.querySelector('.units__subitems-title span')?.innerText
+                          ) || "GrPA_Assignment";
             // The rest of the GrPA scraping logic would go here,
             // but for now, we'll just return the title.
             // This function will be further developed.
@@ -250,12 +257,14 @@
         }
 
         let assignmentTitle = (
+            document.querySelector('.title-row .title') ||
             document.querySelector('.left-content .assignment-title') ||
             document.querySelector('.assignment-title') ||
             document.querySelector('.modules__content-head-title')
         )?.innerText.trim() || 'Graded Assignment';
 
         let courseTitle = (
+            document.querySelector('.side-nav-title') ||
             document.querySelector('.course-title') ||
             document.querySelector('app-header .header .content .course-title') ||
             document.querySelector('.modules__content-head-title div:first-child')
@@ -285,8 +294,18 @@
             // --- DEEP BREADCRUMB DETECTION (Shared for all modes) ---
             detectedWeek = "";
             try {
-                const openedSubItem = document.querySelector('.units__subitems-text.opened, .units__subitems-text.opened-btn');
-                detectedWeek = openedSubItem?.closest('.units__items')?.querySelector('.units__items-title')?.innerText.trim() || '';
+                const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
+                if (isNewPortal) {
+                    const selectedChild = document.querySelector('.child-row.selected');
+                    const expandedWeek = document.querySelector('.unit-header[aria-expanded="true"]');
+                    detectedWeek = selectedChild?.closest('.unit-container')?.querySelector('.unit-title')?.innerText.trim()
+                        || expandedWeek?.querySelector('.unit-title')?.innerText.trim()
+                        || document.querySelector('.side-nav-title')?.innerText.trim()
+                        || '';
+                } else {
+                    const openedSubItem = document.querySelector('.units__subitems-text.opened, .units__subitems-text.opened-btn');
+                    detectedWeek = openedSubItem?.closest('.units__items')?.querySelector('.units__items-title')?.innerText.trim() || '';
+                }
             } catch (e) {}
 
             // Metadata extraction complete. DO NOT prepend to markdown yet.
@@ -730,7 +749,7 @@
                 if (!isLoaded) console.log('⏳ Portal content taking too long or unstructured. Capturing current view...');
 
                 // Regular assignment logic (Dual-mode: GCB & Modern Portal)
-                const headerInfo = document.querySelector('.assessment-top-info, .modules__content-head-title, .title-container');
+                const headerInfo = document.querySelector('.assessment-top-info, .modules__content-head-title, .title-container, .title-bar');
                 if (headerInfo) markdown += `> ${headerInfo.innerText.trim().replace(/\n\s*\n/g, '\n> ')}\n\n`;
 
                 const lastSubmitted = document.querySelector('.submission-info .submission-date, .last-submitted-at');
@@ -739,7 +758,7 @@
                 markdown += `---\n\n`;
 
                 // Try to find the container for questions
-                const bodyContent = document.querySelector('.gcb-assessment-body, mat-sidenav-content, .assignment-container, .question-container-parent');
+                const bodyContent = document.querySelector('.gcb-assessment-body, mat-sidenav-content, .assignment-container, .question-container-parent, .course-content .scrollable-view');
                 if (bodyContent) {
                     const introClone = bodyContent.cloneNode(true);
 
@@ -793,7 +812,7 @@
 
                 if (questionBlocks.length === 0 && !ytIframe) {
                     // Fallback to full content if nothing structured found
-                    const mainContent = document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content') || document.body;
+                    const mainContent = document.querySelector('mat-sidenav-content, main, .modules__content-body, #main-content, .course-content .scrollable-view') || document.body;
                     const clone = mainContent.cloneNode(true);
                     // Remove sidebars and known noise
                     clone.querySelectorAll('mat-sidenav, app-header, app-footer, .header, .footer, script, noscript, .units__list, .nav-container').forEach(el => el.remove());
@@ -1102,7 +1121,7 @@
             if (ytIframe?.src) {
                 const src = ytIframe.src;
                 const vidMatch = src.match(/embed\/([^?]+)/);
-                const vidTitle = (document.querySelector('.assessment-top-info, .title-container')?.innerText || assignmentTitle).trim();
+                const vidTitle = (document.querySelector('.title-row .title, .assessment-top-info, .title-container')?.innerText || assignmentTitle).trim();
                 videos.push({ title: vidTitle, url: vidMatch ? `https://youtube.com/watch?v=${vidMatch[1]}` : src });
             }
 
@@ -1307,20 +1326,27 @@
                 syllabusMd += `\n---\n\n`;
             }
 
-            const weeks = document.querySelectorAll('.units__items');
+            const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
+            const weeks = document.querySelectorAll(isNewPortal ? '.unit-container' : '.units__items');
             if (weeks.length === 0) {
                 alert('No syllabus items found in the sidebar. Please ensure you are on a course page.');
                 return;
             }
 
             weeks.forEach((week, idx) => {
-                const weekTitle = week.querySelector('.units__items-title')?.innerText.trim() || `Week ${idx+1}`;
+                const weekTitle = isNewPortal
+                    ? (week.querySelector('.unit-title')?.innerText.trim() || `Week ${idx+1}`)
+                    : (week.querySelector('.units__items-title')?.innerText.trim() || `Week ${idx+1}`);
                 syllabusMd += `## ${weekTitle}\n\n`;
 
-                const subItems = week.querySelectorAll('.units__subitems');
+                const subItems = week.querySelectorAll(isNewPortal ? '.child-row' : '.units__subitems');
                 subItems.forEach(item => {
-                    const title = item.querySelector('.units__subitems-title span')?.innerText.trim() || item.innerText.split('\n')[0].trim();
-                    const type = item.querySelector('.units__subitems-videos')?.innerText.trim() || 'Item';
+                    const title = isNewPortal
+                        ? (item.querySelector('.child-title')?.innerText.trim() || item.innerText.split('\n')[0].trim())
+                        : (item.querySelector('.units__subitems-title span')?.innerText.trim() || item.innerText.split('\n')[0].trim());
+                    const type = isNewPortal
+                        ? (item.querySelector('.child-type')?.innerText.trim() || 'Item')
+                        : (item.querySelector('.units__subitems-videos')?.innerText.trim() || 'Item');
                     const icon = type.includes('Video') ? '🎥' : type.includes('Assignment') ? '📝' : '📖';
                     
                     syllabusMd += `- ${icon} **${title}** (${type})\n`;

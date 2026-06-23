@@ -8,6 +8,46 @@
     let isTimerDismissed = false; 
     const selectedItems = new Set(); // Persistent selection storage
     const normalizeLooseText = (value = '') => value.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // === DOM SELECTOR HELPERS (New Portal v2 Compatibility) ===
+    // These helpers detect which portal version is active and use the correct selectors.
+    const isNewPortal = () => !!document.querySelector('.unit-container, .app-side-nav, .child-row');
+
+    const sidebarWeekSelectors = () => isNewPortal()
+        ? '.unit-container'
+        : '.units__items, .mat-expansion-panel';
+
+    const sidebarWeekTitleSelector = () => isNewPortal()
+        ? '.unit-header .unit-title'
+        : '.units__items-title span, .units__items-title, .mat-expansion-panel-header-title';
+
+    const sidebarSubItemSelector = () => isNewPortal()
+        ? '.child-row'
+        : '.units__subitems';
+
+    const sidebarSubItemTitleSelector = () => isNewPortal()
+        ? '.child-title'
+        : '.units__subitems-title span, .units__subitems-title';
+
+    const sidebarSubItemTypeSelector = () => isNewPortal()
+        ? '.child-type'
+        : '.units__subitems-videos';
+
+    const getSelectedSubItem = () => document.querySelector(
+        isNewPortal() ? '.child-row.selected' : '.units__subitems-selected'
+    );
+
+    const getSelectedWeek = () => document.querySelector(
+        isNewPortal() ? '.unit-header[aria-expanded="true"]' : '.units__items-selected'
+    );
+
+    const getSidebarToggle = () => document.querySelector(
+        isNewPortal() ? '.pin-button' : '.hide-outline-btn, .modules__content-head-menu'
+    );
+
+    const getSidebarList = () => document.querySelector(
+        isNewPortal() ? '.side-nav-content' : '.units__list, mat-nav-list, mat-sidenav .mat-drawer-inner-container'
+    );
     const getSelectionKey = (itemOrText, breadcrumb = '') => {
         if (typeof itemOrText === 'string') {
             return `${normalizeLooseText(breadcrumb)}::${normalizeLooseText(itemOrText)}`;
@@ -188,6 +228,13 @@
             return (e.length > 8 && c.includes(e)) || (c.length > 8 && e.includes(c));
         };
         const getActiveSidebarTitle = () => {
+            if (isNewPortal()) {
+                return (
+                    document.querySelector('.child-row.selected .child-title')?.innerText ||
+                    document.querySelector('.unit-header[aria-expanded="true"] .unit-title')?.innerText ||
+                    ''
+                ).trim();
+            }
             return (
                 document.querySelector('.units__subitems-selected .units__subitems-title span')?.innerText ||
                 document.querySelector('.units__subitems-selected .units__subitems-title')?.innerText ||
@@ -198,6 +245,7 @@
         const getCurrentPortalTitle = () => {
             return (
                 document.querySelector('.programming-code-editor-container .title')?.innerText ||
+                document.querySelector('.title-row .title')?.innerText ||
                 document.querySelector('.left-content .assignment-title')?.innerText ||
                 document.querySelector('.assignment-title')?.innerText ||
                 document.querySelector('.title-container')?.innerText ||
@@ -212,6 +260,30 @@
 
             const normalizedTitle = normalizeLooseText(title);
             const normalizedBreadcrumb = normalizeLooseText(breadcrumb || '');
+
+            if (isNewPortal()) {
+                const headers = Array.from(document.querySelectorAll('.unit-container'));
+                const targetHeader = headers.find(h => {
+                    if (!normalizedBreadcrumb) return true;
+                    const headerTitle = (h.querySelector('.unit-title')?.innerText || '').trim();
+                    return normalizeLooseText(headerTitle).includes(normalizedBreadcrumb);
+                });
+
+                if (!targetHeader) return null;
+
+                const isExpanded = targetHeader.querySelector('.child-container');
+                if (!isExpanded) {
+                    (targetHeader.querySelector('.unit-header') || targetHeader).click();
+                }
+
+                const subItems = Array.from(targetHeader.querySelectorAll('.child-row'));
+                return subItems.find(s => {
+                    const nodeTitle = (s.querySelector('.child-title')?.innerText || s.innerText.split('\n')[0] || '').trim();
+                    const normalizedNode = normalizeLooseText(nodeTitle);
+                    return normalizedNode === normalizedTitle || normalizedNode.includes(normalizedTitle) || normalizedTitle.includes(normalizedNode);
+                }) || null;
+            }
+
             const headers = Array.from(document.querySelectorAll('.units__items, .mat-expansion-panel'));
             const targetHeader = headers.find(h => {
                 if (!normalizedBreadcrumb) return true;
@@ -321,10 +393,14 @@
         };
         
         // Force-expand all weeks to ensure items are rendered in DOM
-        const weeks = document.querySelectorAll('.units__section');
+        const weeks = document.querySelectorAll(sidebarWeekSelectors());
         for (const week of weeks) {
-            const isExpanded = week.querySelector('.units__subitems'); // If subitems exist, it's probably expanded
-            const header = week.querySelector('.units__section-title') || week.querySelector('mat-panel-header');
+            const isExpanded = isNewPortal()
+                ? week.querySelector('.child-container')
+                : week.querySelector('.units__subitems');
+            const header = isNewPortal()
+                ? week.querySelector('.unit-header')
+                : (week.querySelector('.units__section-title') || week.querySelector('mat-panel-header'));
             if (!isExpanded && header) {
                 bulkLog('📂 Expanding week:', header.innerText.trim());
                 header.click();
@@ -492,9 +568,11 @@
             window.__iitm_is_bulk_scraping = true; // Shield against autoCloseSidebar
             let navigated = false;
             for (let navAttempt = 0; navAttempt < 3 && !navigated; navAttempt++) {
-                const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu, .mobile-menu button, button[aria-label="Menu"]');
+                const leftToggle = getSidebarToggle();
                 if (leftToggle) {
-                    const isCollapsed = leftToggle.innerHTML?.includes('rotate(180deg)') || document.querySelector('mat-sidenav')?.getAttribute('opened') !== 'true';
+                    const isCollapsed = isNewPortal()
+                        ? leftToggle.getAttribute('aria-label')?.includes('Unpin')
+                        : (leftToggle.innerHTML?.includes('rotate(180deg)') || document.querySelector('mat-sidenav')?.getAttribute('opened') !== 'true');
                     if (isCollapsed) leftToggle.click();
                 }
 
@@ -729,9 +807,16 @@
     let autoCloseAttempts = 0;
     
     const saveNote = (text) => {
-        const week = document.querySelector('.units__items-selected .units__items-title')?.innerText.trim() || 'General';
-        const unit = document.querySelector('.units__subitems-selected .units__subitems-title span')?.innerText.trim() || 
-                     document.querySelector('.assignment-title')?.innerText.trim() || 'Lesson';
+        const week = (
+            isNewPortal()
+                ? (getSelectedWeek()?.querySelector('.unit-title')?.innerText || document.querySelector('.side-nav-title')?.innerText)
+                : document.querySelector('.units__items-selected .units__items-title')?.innerText
+        )?.trim() || 'General';
+        const unit = (
+            isNewPortal()
+                ? (getSelectedSubItem()?.querySelector('.child-title')?.innerText || document.querySelector('.title-row .title')?.innerText)
+                : (document.querySelector('.units__subitems-selected .units__subitems-title span')?.innerText || document.querySelector('.assignment-title')?.innerText)
+        )?.trim() || 'Lesson';
         const video = document.querySelector('video');
         const timestamp = video ? Math.floor(video.currentTime) : null;
         
@@ -798,10 +883,12 @@
             // Wait for both the initial spinner AND the skeleton loading frames to resolve completely
             let waitAttempts = 0;
             const delayClose = setInterval(() => {
-                const subitems = document.querySelectorAll('.units__subitems');
+                const subitems = document.querySelectorAll(sidebarSubItemSelector());
                 
                 // 1. Are sidebar units populated?
-                const isSidebarReady = subitems.length > 20 && subitems[0].innerText.trim().length > 5;
+                const isSidebarReady = isNewPortal()
+                    ? subitems.length > 5
+                    : (subitems.length > 20 && subitems[0].innerText.trim().length > 5);
                 
                 // 2. Are skeleton/spinners dead?
                 const isGhostLoaderActive = document.querySelector('.ghost-loader, .skeleton') !== null;
@@ -822,11 +909,15 @@
                     if (typeof window.__iitm_get_items === 'function') window.__iitm_get_items();
                     
                     // Desktop Sidebar
-                    const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu');
-                    const isCollapsed = document.querySelector('.hide-outline-btn')?.innerHTML?.includes('rotate(180deg)');
-                    if (leftToggle && !isCollapsed && !isSpotlightOpen) leftToggle.click();
+                    const leftToggle = getSidebarToggle();
+                    if (isNewPortal()) {
+                        // New portal: sidebar is always visible, no auto-collapse needed
+                    } else {
+                        const isCollapsed = document.querySelector('.hide-outline-btn')?.innerHTML?.includes('rotate(180deg)');
+                        if (leftToggle && !isCollapsed && !isSpotlightOpen) leftToggle.click();
+                    }
                     
-                    // Mobile Sidebar
+                    // Mobile Sidebar (legacy)
                     const sidenav = document.querySelector('mat-sidenav');
                     if (sidenav && (sidenav.classList.contains('mat-drawer-opened') || sidenav.getAttribute('opened') === 'true' || sidenav.offsetWidth > 100)) {
                         const mobileToggle = document.querySelector('.mobile-menu button, .header button[aria-label="Menu"], app-button.mobile-menu button');
@@ -924,7 +1015,7 @@
 
     // 1. HEADER UTILS (Master Toggle, Exam Mode, Notes, History)
     const injectHeaderUtils = () => {
-        const header = document.querySelector('.header__right') || document.querySelector('.header');
+        const header = document.querySelector('.app-bar-container') || document.querySelector('.header__right') || document.querySelector('.header');
         if (!header || document.getElementById('iitm-header-utils')) return;
         if (!isNotesBtnVisible && isCleanMode) return; // Hide altogether if cleaned & hidden
 
@@ -1538,6 +1629,30 @@
                     window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/current_courses';
                 } else if (item.actionId === 'navScore') {
                     window.location.href = 'https://score-checker-379619009600.asia-south1.run.app/course_wise';
+                } else if (item.actionId === 'navCurrentCourses') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/current_courses';
+                } else if (item.actionId === 'navCompletedCourses') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_courses';
+                } else if (item.actionId === 'navProjects') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_projects';
+                } else if (item.actionId === 'navHallTicket') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/exam_cities_and_hall_ticket';
+                } else if (item.actionId === 'navCalendar') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/calender';
+                } else if (item.actionId === 'navCertificates') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_certificates';
+                } else if (item.actionId === 'navDocuments') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_documents';
+                } else if (item.actionId === 'navSubmittedDocs') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/submitted_forms_and_receipt';
+                } else if (item.actionId === 'navPayments') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/pending_payment/list';
+                } else if (item.actionId === 'navDisciplinary') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_disciplinary_action';
+                } else if (item.actionId === 'navLatestUpdates') {
+                    window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/latest_updates';
+                } else if (item.actionId === 'navSupport') {
+                    window.location.href = 'https://study-supportdesk.freshdesk.com/support/login';
                 } else if (item.actionId === 'showTour') {
                     spotlight.style.display = 'none';
                     showFeatureTour();
@@ -1588,18 +1703,23 @@
                         if (!item.isSub) setTimeout(() => item.el.querySelector('.mat-expansion-indicator')?.click(), 50);
                     } else {
                         // Fallback: If Angular erased or hid the sidebar, we must re-open it to orchestrate the route change natively!
-                        const leftToggle = document.querySelector('.hide-outline-btn, .modules__content-head-menu, .mobile-menu button, button[aria-label="Menu"]');
+                        const leftToggle = getSidebarToggle();
                         if (leftToggle) leftToggle.click();
 
                         setTimeout(() => {
-                            const headers = Array.from(document.querySelectorAll('.units__items'));
+                            const headers = Array.from(document.querySelectorAll(sidebarWeekSelectors()));
                             const targetHeader = headers.find(h => h.innerText.includes(item.breadcrumb));
                             if (targetHeader) {
-                                if (!targetHeader.classList.contains('mat-expanded') && !targetHeader.querySelector('.mat-expansion-panel-content')) {
-                                    targetHeader.click();
+                                if (isNewPortal()) {
+                                    const isExpanded = targetHeader.querySelector('.child-container');
+                                    if (!isExpanded) targetHeader.querySelector('.unit-header')?.click();
+                                } else {
+                                    if (!targetHeader.classList.contains('mat-expanded') && !targetHeader.querySelector('.mat-expansion-panel-content')) {
+                                        targetHeader.click();
+                                    }
                                 }
                                 setTimeout(() => {
-                                    const subitems = Array.from(targetHeader.querySelectorAll('.units__subitems'));
+                                    const subitems = Array.from(targetHeader.querySelectorAll(sidebarSubItemSelector()));
                                     const exactNode = subitems.find(s => s.innerText.includes(item.text));
                                     if (exactNode) (exactNode.closest('button') || exactNode).click();
                                 }, 300);
@@ -1623,6 +1743,7 @@
             
             // GROUPING DATA
             const groupMap = {
+                'DASHBOARD LINKS': [],
                 'SYSTEM COMMANDS': [],
                 'PROGRAMMING EXAMS (OPPE/NPPE)': [],
                 'LECTURE VIDEOS': [],
@@ -1726,9 +1847,10 @@
         let cachedItems = null;
 
         const getItems = () => {
-            // Sites uses Angular's units__items for weeks and unit__subitems for contents
-            let headers = Array.from(document.querySelectorAll('.units__items'));
-            // Refined fallback: Iterate sequentially to avoid double-counting nested Angular fragments
+            let headers = Array.from(document.querySelectorAll(sidebarWeekSelectors()));
+            if (headers.length === 0 && isNewPortal()) {
+                headers = Array.from(document.querySelectorAll('.unit-container'));
+            }
             if (headers.length === 0) headers = Array.from(document.querySelectorAll('.mat-expansion-panel'));
             if (headers.length === 0) headers = Array.from(document.querySelectorAll('app-course-unit-header'));
             
@@ -1755,15 +1877,21 @@
 
             headers.forEach(weekEl => {
                 const weekTitle = (
-                    weekEl.querySelector('.units__items-title span')?.innerText.trim() || 
-                    weekEl.querySelector('.units__items-title')?.innerText.trim() || 
-                    weekEl.querySelector('.mat-expansion-panel-header-title')?.innerText.trim() || 
-                    weekEl.querySelector('mat-panel-title')?.innerText.trim() || 
-                    'General'
+                    isNewPortal()
+                        ? (weekEl.querySelector('.unit-title')?.innerText.trim() || 'General')
+                        : (
+                            weekEl.querySelector('.units__items-title span')?.innerText.trim() || 
+                            weekEl.querySelector('.units__items-title')?.innerText.trim() || 
+                            weekEl.querySelector('.mat-expansion-panel-header-title')?.innerText.trim() || 
+                            weekEl.querySelector('mat-panel-title')?.innerText.trim() || 
+                            'General'
+                          )
                 ).split('\n')[0].trim();
                 
                 // Add the Week itself
-                const weekHeader = weekEl.querySelector('.units__items-title');
+                const weekHeader = isNewPortal()
+                    ? weekEl.querySelector('.unit-header')
+                    : weekEl.querySelector('.units__items-title');
                 if (weekHeader) {
                     allItems.push({
                         text: weekTitle,
@@ -1775,11 +1903,19 @@
                 }
                 
                 // Add all sub-items under this week
-                const subItems = weekEl.querySelectorAll('.units__subitems');
+                const subItems = weekEl.querySelectorAll(sidebarSubItemSelector());
                 subItems.forEach(sub => {
-                    const titleText = sub.querySelector('.units__subitems-title span')?.innerText.trim() || sub.innerText.split('\n')[0].trim();
+                    const titleText = (
+                        isNewPortal()
+                            ? (sub.querySelector('.child-title')?.innerText.trim() || sub.innerText.split('\n')[0].trim())
+                            : (sub.querySelector('.units__subitems-title span')?.innerText.trim() || sub.innerText.split('\n')[0].trim())
+                    );
                     const subText = sub.innerText.toLowerCase();
-                    const subTagText = sub.querySelector('.units__subitems-videos')?.innerText.trim() || 'Lesson';
+                    const subTagText = (
+                        isNewPortal()
+                            ? (sub.querySelector('.child-type')?.innerText.trim() || 'Lesson')
+                            : (sub.querySelector('.units__subitems-videos')?.innerText.trim() || 'Lesson')
+                    );
                     let isProgramming = subText.includes('programming assignment') || subText.includes('programming question') || subText.includes('grpa');
                     
                     let color = '#2e7d32';
@@ -1802,6 +1938,7 @@
                     const isGraded_Explicit = label === 'Graded' || label === 'GrPA' || subText.includes('graded');
                     const isGraded = isGraded_Explicit && (!titleText.toLowerCase().includes('not graded') && !titleText.toLowerCase().includes('practice') && !titleText.toLowerCase().includes('mock') && !titleText.toLowerCase().includes('ungraded'));
                     
+                    // New portal uses icon SVGs for status; old uses mat-icon with color styles
                     const isDone = !!(
                         sub.querySelector('.submitted-icon, .units__subitems-videos-done, mat-icon.done, .submitted, .units__subitems--completed, .completed') || 
                         sub.innerHTML.includes('done') ||
@@ -1810,7 +1947,9 @@
                         sub.querySelector('mat-icon[style*="rgb(239, 108, 0)"]') ||
                         sub.querySelector('mat-icon[style*="rgb(103, 58, 183)"]') || 
                         sub.querySelector('.mat-icon-no-color.done') ||
-                        sub.querySelector('.units__subitems--progress-icon.done')
+                        sub.querySelector('.units__subitems--progress-icon.done') ||
+                        // New portal: check for SVG icons with green/completed colors
+                        (isNewPortal() && sub.querySelector('app-icon svg path[fill="#2e7d32"], app-icon svg path[fill="#4caf50"]'))
                     );
                     
                     allItems.push({
@@ -1847,6 +1986,23 @@
                 { text: '🔄 RELOAD Extension (Developer)', typeLabel: 'Action', el: null, action: 'reloadExtension' }
             ];
 
+            [
+                ['↗ My Dashboard', 'navCurrentCourses'],
+                ['↗ Completed & Pending Courses', 'navCompletedCourses'],
+                ['↗ My Completed Projects', 'navProjects'],
+                ['↗ Hall Ticket & Exam Cities', 'navHallTicket'],
+                ['↗ Academic Calendar', 'navCalendar'],
+                ['↗ Certificates', 'navCertificates'],
+                ['↗ Documents for Download', 'navDocuments'],
+                ['↗ Submitted Documents', 'navSubmittedDocs'],
+                ['↗ Payments & Transactions', 'navPayments'],
+                ['↗ Disciplinary Action', 'navDisciplinary'],
+                ['↗ Latest Updates', 'navLatestUpdates'],
+                ['↗ Issues & Queries', 'navSupport']
+            ].forEach(([text, actionId]) => {
+                actions.push({ text, typeLabel: 'Nav', el: null, action: actionId, group: 'DASHBOARD LINKS' });
+            });
+
             actions.forEach(act => {
                 allItems.push({
                     text: act.text,
@@ -1855,7 +2011,8 @@
                     isSub: true,
                     typeLabel: act.typeLabel,
                     color: '#c2185b',
-                    actionId: act.action
+                    actionId: act.action,
+                    group: act.group || 'SYSTEM COMMANDS'
                 });
             });
 
@@ -1966,14 +2123,25 @@
                    showToast('History Purged');
                 }, global: true },
                 { name: 'Go to My Dashboard', key: 'H', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/current_courses', global: true },
-                { name: 'Open Score Checker', key: 'S', run: () => window.location.href = 'https://score-checker-379619009600.asia-south1.run.app/course_wise', global: true },
-                { name: 'Exam Simulator (Path to S)', key: 'P', run: () => {
+                { name: 'Open Score Checker', key: 'O', run: () => window.location.href = 'https://score-checker-379619009600.asia-south1.run.app/course_wise', global: true },
+                { name: 'Completed & Pending Courses', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_courses', global: true },
+                { name: 'My Completed Projects', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_projects', global: true },
+                { name: 'Hall Ticket & Exam Cities', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/exam_cities_and_hall_ticket', global: true },
+                { name: 'Academic Calendar', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/calender', global: true },
+                { name: 'Certificates', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_certificates', global: true },
+                { name: 'Documents for Download', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_documents', global: true },
+                { name: 'Submitted Documents', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/submitted_forms_and_receipt', global: true },
+                { name: 'Payments & Transactions', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/pending_payment/list', global: true },
+                { name: 'Disciplinary Action', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/student_disciplinary_action', global: true },
+                { name: 'Latest Updates', key: 'NAV', run: () => window.location.href = 'https://ds.study.iitm.ac.in/student_dashboard/latest_updates', global: true },
+                { name: 'Issues & Queries', key: 'NAV', run: () => window.location.href = 'https://study-supportdesk.freshdesk.com/support/login', global: true },
+                { name: 'Exam Simulator (Path to S)', key: 'V', run: () => {
                     const selector = document.getElementById('iitm-exam-simulator');
                     if (selector) selector.remove();
                     showExamSimulator();
                 }, global: true },
                 { name: 'Global GPA Projector', key: 'G', run: () => showGlobalProjection(), global: true },
-                { name: 'Strategic Command Center', key: 'P', run: () => showStrategicHub(), global: true },
+                { name: 'Strategic Command Center', key: 'Z', run: () => showStrategicHub(), global: true },
                 { name: 'Feature Tour (What\'s New)', key: '?', run: () => showFeatureTour(), global: true },
                 { name: 'Reload Extension', key: 'R', run: () => {
                     spotlight.style.display = 'none';
@@ -2055,7 +2223,7 @@
         };
 
         const updatePlaceholder = () => {
-            const count = document.querySelectorAll('.units__subitems').length;
+            const count = document.querySelectorAll(sidebarSubItemSelector()).length;
             input.placeholder = count < 10 ? "Expand weeks in sidebar to search..." : "Search for apps and commands...";
         };
 
@@ -2107,7 +2275,9 @@
 
                 // Group assignments for renderResults
                 let group = 'COURSE OUTLINE';
-                if (item.actionId || bread.includes('system')) group = 'SYSTEM COMMANDS';
+                if (item.group) group = item.group;
+                else if (item.actionId && item.actionId.startsWith('nav')) group = 'DASHBOARD LINKS';
+                else if (item.actionId || bread.includes('system')) group = 'SYSTEM COMMANDS';
                 else if (isExam) group = 'PROGRAMMING EXAMS (OPPE/NPPE)';
                 else if (tag.includes('video') && !isNote) group = 'LECTURE VIDEOS';
                 else if (isGrPA) group = 'PROGRAMMING ASSIGNMENTS';
@@ -2326,7 +2496,7 @@
 
     // 3. SIDEBAR PROGRESS TRACKER (FIXED: Integrated & Live Updates)
     const injectProgressTracker = () => {
-        const list = document.querySelector('.units__list') || document.querySelector('mat-nav-list') || document.querySelector('mat-sidenav .mat-drawer-inner-container');
+        const list = getSidebarList();
         if (!list) return;
 
         let card = document.getElementById('iitm-progress-card');
@@ -2342,8 +2512,7 @@
         }
 
         // Gather Stats accurately from the sidebar elements
-        // Accurate stat discovery using robust iterative Angular component queries
-        let subItems = Array.from(document.querySelectorAll('.units__subitems'));
+        let subItems = Array.from(document.querySelectorAll(sidebarSubItemSelector()));
         if (subItems.length === 0) {
             subItems = Array.from(document.querySelectorAll('app-course-unit-item'));
         }
@@ -2356,7 +2525,7 @@
         
         subItems.forEach(item => {
             const t = item.innerText.toLowerCase();
-            const tag = item.querySelector('.units__subitems-videos')?.innerText.toLowerCase() || '';
+            const tag = item.querySelector(sidebarSubItemTypeSelector())?.innerText.toLowerCase() || '';
             // ULTIMATE Completion Detection: Checks icons, text, classes, and styles (Orange/Green/Purple)
             const isDone = !!(
                 item.querySelector('.submitted-icon, .units__subitems-videos-done, mat-icon.done, .submitted, .units__subitems--completed, .completed') || 
@@ -2366,11 +2535,13 @@
                 item.querySelector('mat-icon[style*="rgb(239, 108, 0)"]') ||
                 item.querySelector('mat-icon[style*="rgb(103, 58, 183)"]') || // Purple GrPA done
                 item.querySelector('.mat-icon-no-color.done') ||
-                item.querySelector('.units__subitems--progress-icon.done')
+                item.querySelector('.units__subitems--progress-icon.done') ||
+                // New portal
+                (isNewPortal() && item.querySelector('app-icon svg path[fill="#2e7d32"], app-icon svg path[fill="#4caf50"]'))
             );
             
-            const parentWeek = item.closest('.units__items, .mat-expansion-panel, app-course-unit-header');
-            const weekText = parentWeek ? (parentWeek.querySelector('.units__items-title, .mat-expansion-panel-header-title')?.innerText || parentWeek.innerText).toLowerCase() : '';
+            const parentWeek = item.closest(sidebarWeekSelectors());
+            const weekText = parentWeek ? (parentWeek.querySelector(sidebarWeekTitleSelector())?.innerText || parentWeek.innerText).toLowerCase() : '';
             
             const isNote = t.includes('not graded') || t.includes('practice') || t.includes('mock') || t.includes('non-graded') || t.includes('ungraded');
             const isExam = t.includes('oppe') || t.includes('nppe') || weekText.includes('oppe') || weekText.includes('nppe');
@@ -2423,6 +2594,7 @@
     let discoveredDeadlines = []; 
 
     const injectDeadlineOS = () => {
+        // Old portal selectors
         const dueElements = document.querySelectorAll('.gcb-submission-due-date, .due-date, .deadline');
         const now = new Date();
 
@@ -2434,13 +2606,37 @@
                 const diff = dueDate - now;
                 
                 if (diff > 0 && diff < DEADLINE_THRESHOLD) {
-                    const title = document.querySelector('.assignment-title, h1, .title, .units__subitems--selected .units__subitems-title')?.innerText || "Upcoming Assignment";
+                    const title = (
+                        isNewPortal()
+                            ? (document.querySelector('.title-row .title')?.innerText || document.querySelector('.side-nav-title')?.innerText)
+                            : (document.querySelector('.assignment-title, h1, .title, .units__subitems--selected .units__subitems-title')?.innerText)
+                    ) || "Upcoming Assignment";
                     if (!discoveredDeadlines.find(d => d.title === title)) {
                         discoveredDeadlines.push({ title, date: dateMatch[0], dueDate, diff });
                     }
                 }
             }
         });
+
+        // New portal: parse app-submission-timer
+        const newPortalTimer = document.querySelector('.submission-timer .due-label');
+        if (newPortalTimer && isNewPortal()) {
+            const timerText = newPortalTimer.innerText;
+            const dueMatch = timerText.match(/Due\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i) || 
+                            timerText.match(/(\d{1,2}[a-z]{0,2}\s+[A-Za-z]+\s+\d{4})/i);
+            if (dueMatch) {
+                const dueDate = new Date(dueMatch[1]);
+                const diff = dueDate - now;
+                if (diff > 0 && diff < DEADLINE_THRESHOLD) {
+                    const title = document.querySelector('.title-row .title')?.innerText || 
+                                  document.querySelector('.side-nav-title')?.innerText || 
+                                  "Upcoming Assignment";
+                    if (!discoveredDeadlines.find(d => d.title === title)) {
+                        discoveredDeadlines.push({ title, date: dueMatch[1], dueDate, diff });
+                    }
+                }
+            }
+        }
 
         if (discoveredDeadlines.length === 0) return;
 
@@ -3029,4 +3225,3 @@
     // Global Trigger for Bulk Export
     window.addEventListener('iitm-trigger-bulk-export', bulkScrapeAll);
 })();
-

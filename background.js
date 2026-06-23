@@ -221,9 +221,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     fetch(scoreCheckerUrl, {
       method: 'GET',
       credentials: 'include',
-      redirect: 'follow'
+      redirect: 'manual'
     })
       .then(res => {
+        if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+          throw new Error('Authentication Required. Please log in to the Score Checker first.');
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
       })
