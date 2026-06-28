@@ -601,6 +601,33 @@
 
             const captureToken = `bulk-${Date.now()}-${i}`;
             const captureStart = Date.now();
+            // === AUTO-START: If on start page, click checkbox + Start Assessment ===
+            try {
+                const startPage = document.querySelector('app-assessment-start-page');
+                if (startPage) {
+                    bulkLog(`📋 [${i+1}] Auto-clicking guidelines checkbox + Start Assessment...`);
+                    const checkbox = startPage.querySelector('input[type="checkbox"]');
+                    if (checkbox && !checkbox.checked) {
+                        checkbox.click();
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+                    const startBtn = startPage.querySelector('button[aria-label="Start Assessment"], .page-footer button.btn-success');
+                    if (startBtn) {
+                        startBtn.click();
+                        for (let w = 0; w < 50; w++) {
+                            await new Promise(r => setTimeout(r, 100));
+                            if (document.querySelector('.assessment-question-view, .assessment-paginator, button.chip, app-assessment-question-view')) {
+                                bulkLog(`✅ [${i+1}] Assessment loaded after ${(w*100)}ms`);
+                                await new Promise(r => setTimeout(r, 500));
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`⚠️ [${i+1}] Auto-start failed:`, e);
+            }
+
             const capturedData = await new Promise((resolve) => {
                 let timeoutId = null;
                 let settled = false;
