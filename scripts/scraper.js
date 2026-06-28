@@ -244,16 +244,240 @@
             downloadMarkdown(markdown, `${title.replace(/\s+/g, '_')}.md`);
         }
 
-        function scrapeProgrammingAssignment() {
+        async function scrapeProgrammingAssignment() {
             const isNewPortal = !!document.querySelector('.unit-container, .app-side-nav, .child-row');
-            const title = document.querySelector('.programming-code-editor-container .title')?.innerText ||
-                          document.querySelector('.pa-code-editor .toolbar')?.closest('app-programming-assignment-view')?.querySelector('.title-row .title')?.innerText ||
-                          (isNewPortal
-                              ? (document.querySelector('.child-row.selected .child-title')?.innerText || document.querySelector('.title-row .title')?.innerText)
-                              : document.querySelector('.units__subitems-title span')?.innerText
-                          ) || "GrPA_Assignment";
+            const title = document.querySelector('.title-row .title')?.innerText
+                          || document.querySelector('.child-row.selected .child-title')?.innerText
+                          || document.querySelector('.mobile-header .title')?.innerText
+                          || "GrPA_Assignment";
             console.log(`[GRPA] Detected programming assignment: ${title}`);
-            return title;
+
+            let markdown = `# ${title}\n\n`;
+            markdown += `> **Course:** ${courseTitle || 'Unknown'}\n\n`;
+            if (detectedWeek) markdown += `> ${detectedWeek}\n\n`;
+            markdown += '---\n\n';
+
+            // Helper: extract clean text from backend-html
+            const extractHtml = (el) => {
+                if (!el) return '';
+                const main = el.querySelector('main') || el;
+                const walkNode = (node) => {
+                    if (node.nodeType === 3) return node.textContent;
+                    if (node.nodeType !== 1) return '';
+                    const tag = node.tagName;
+                    if (node.style && node.style.display === 'none') return '';
+                    if (tag === 'SPAN' && node.style && node.style.fontFamily && node.style.fontFamily.includes('monospace')) {
+                        return '`' + node.textContent + '`';
+                    }
+                    if (tag === 'CODE' && !node.closest('pre')) return '`' + node.textContent + '`';
+                    if (tag === 'PRE') {
+                        const code = node.querySelector('code');
+                        const text = (code || node).textContent.trim();
+                        const lang = code?.className?.match(/language-(\w+)/)?.[1] || 'python';
+                        return '\n\n```' + lang + '\n' + text + '\n```\n\n';
+                    }
+                    if (tag === 'IMG') {
+                        const src = node.src || node.getAttribute('src') || '';
+                        const alt = node.alt || 'image';
+                        return src ? '![' + alt + '](' + src + ')' : '';
+                    }
+                    if (tag === 'A') {
+                        const href = node.href || node.getAttribute('src') || '';
+                        const text = node.textContent.trim() || href;
+                        return href ? '[' + text + '](' + href + ')' : text;
+                    }
+                    if (tag === 'BR') return '\n';
+                    if (tag === 'HR') return '\n\n---\n\n';
+                    const isBlock = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'OL', 'UL', 'BLOCKQUOTE', 'DETAILS', 'SUMMARY'].includes(tag);
+                    let result = '';
+                    for (const child of node.childNodes) result += walkNode(child);
+                    if (isBlock && result.trim()) return '\n' + result.trim() + '\n';
+                    return result;
+                };
+                let text = walkNode(main);
+                return text.replace(/\n{3,}/g, '\n\n').trim();
+            };
+
+            // === 1. PROBLEM STATEMENT ===
+            const probStatement = document.querySelector('.prob-statement, .pa-question .backend-html, app-pa-question .backend-html');
+            if (probStatement) {
+                markdown += '## Problem Statement\n\n';
+                // Extract text content, preserving code blocks and structure
+                const probMd = extractHtml(probStatement);
+                markdown += probMd + '\n\n';
+                console.log('[GRPA] Problem statement extracted:', probMd.substring(0, 100));
+            }
+
+            // === 2. TEMPLATE CODE from <details> blocks ===
+            const detailsBlocks = probStatement ? probStatement.querySelectorAll('details') : [];
+            detailsBlocks.forEach((details, i) => {
+                const summary = details.querySelector('summary')?.textContent?.trim() || 'Details';
+                const codeBlock = details.querySelector('pre code, pre, .code-block');
+                if (codeBlock) {
+                    const code = codeBlock.querySelector('code') || codeBlock;
+                    const text = code.textContent.trim();
+                    const lang = code.className?.match(/language-(\w+)/)?.[1] || 'python';
+                    if (text) {
+                        markdown += `## Template Code\n\n`;
+                        markdown += '```' + lang + '\n' + text + '\n```\n\n';
+                    }
+                } else {
+                    // Non-code details (instructions etc)
+                    const content = extractHtml(details);
+                    if (content.trim()) {
+                        markdown += `<details>\n<summary>${summary}</summary>\n\n${content}\n\n</details>\n\n`;
+                    }
+                }
+            });
+
+            // === 3. ACE EDITOR CONTENT (current code / template) ===
+            const aceEditor = document.querySelector('.ace_editor');
+            if (aceEditor) {
+                try {
+                    const editor = aceEditor.env?.editor || (typeof ace !== 'undefined' ? ace.edit(aceEditor) : null);
+                    if (editor) {
+                        const code = editor.getValue();
+                        if (code && code.trim().length > 5) {
+                            // Check if it's template code (contains ...) or user code
+                            const isTemplate = code.includes('...');
+                            const label = isTemplate ? 'Template Code (from editor)' : 'Your Current Code';
+                            markdown += `## ${label}\n\n`;
+                            markdown += '```python\n' + code + '\n```\n\n';
+                        }
+                    }
+                } catch(e) {
+                    console.warn('[GRPA] Could not read ace editor:', e);
+                }
+            }
+
+            // === 4. TEST CASES ===
+            // Click the "Test Cases" tab
+            const tabButtons = document.querySelectorAll('button[role="tab"]');
+            let testCasesTab = null;
+            let solutionTab = null;
+            tabButtons.forEach(btn => {
+                const label = btn.querySelector('.tab-label')?.textContent?.trim() || btn.textContent?.trim();
+                if (label === 'Test Cases') testCasesTab = btn;
+                if (label === 'Solution') solutionTab = btn;
+            });
+
+            if (testCasesTab) {
+                // Check if it's not disabled
+                const isDisabled = testCasesTab.classList.contains('disabled') || testCasesTab.getAttribute('aria-disabled') === 'true';
+                if (!isDisabled) {
+                    console.log('[GRPA] Clicking Test Cases tab...');
+                    testCasesTab.click();
+                    await new Promise(r => setTimeout(r, 800)); // Wait for tab content to load
+
+                    // Extract test case content
+                    const testCasesContent = document.querySelector('.tabs-content app-pa-test-cases, .tabs-content .test-cases, .tabs-content');
+                    if (testCasesContent) {
+                        const tcMd = extractHtml(testCasesContent);
+                        if (tcMd.trim()) {
+                            markdown += '## Test Cases\n\n';
+                            markdown += tcMd + '\n\n';
+                            console.log('[GRPA] Test cases extracted:', tcMd.substring(0, 100));
+                        }
+                    }
+
+                    // Also look for specific test case elements
+                    const testCaseRows = document.querySelectorAll('.test-case-row, .test-case, [class*="test-case"]');
+                    if (testCaseRows.length > 0 && !markdown.includes('## Test Cases')) {
+                        markdown += '## Test Cases\n\n';
+                        testCaseRows.forEach((row, i) => {
+                            const input = row.querySelector('.input, .test-input, td:nth-child(1)')?.textContent?.trim() || '';
+                            const expected = row.querySelector('.expected, .expected-output, td:nth-child(2)')?.textContent?.trim() || '';
+                            if (input || expected) {
+                                markdown += `**Test ${i + 1}:**\n`;
+                                if (input) markdown += `- Input: \`${input}\`\n`;
+                                if (expected) markdown += `- Expected: \`${expected}\`\n\n`;
+                            }
+                        });
+                    }
+
+                    // Click back to Question tab
+                    const questionTab = Array.from(tabButtons).find(btn => {
+                        const label = btn.querySelector('.tab-label')?.textContent?.trim() || btn.textContent?.trim();
+                        return label === 'Question';
+                    });
+                    if (questionTab) {
+                        questionTab.click();
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+                } else {
+                    markdown += '## Test Cases\n\n*Test cases are locked/not available yet.*\n\n';
+                }
+            }
+
+            // === 5. SOLUTION TAB ===
+            if (solutionTab) {
+                const isDisabled = solutionTab.classList.contains('disabled') || solutionTab.getAttribute('aria-disabled') === 'true';
+                if (!isDisabled) {
+                    console.log('[GRPA] Clicking Solution tab...');
+                    solutionTab.click();
+                    await new Promise(r => setTimeout(r, 800));
+
+                    const solutionContent = document.querySelector('.tabs-content');
+                    if (solutionContent) {
+                        const solMd = extractHtml(solutionContent);
+                        if (solMd.trim()) {
+                            markdown += '## Official Solution\n\n';
+                            markdown += solMd + '\n\n';
+                        }
+                    }
+
+                    // Also check for ace editor with solution code
+                    const solEditor = document.querySelector('.ace_editor');
+                    if (solEditor) {
+                        try {
+                            const editor = solEditor.env?.editor || (typeof ace !== 'undefined' ? ace.edit(solEditor) : null);
+                            if (editor) {
+                                const code = editor.getValue();
+                                if (code && code.trim().length > 5 && !code.includes('...')) {
+                                    markdown += '## Official Solution Code\n\n';
+                                    markdown += '```python\n' + code + '\n```\n\n';
+                                }
+                            }
+                        } catch(e) {}
+                    }
+
+                    // Click back to Question tab
+                    const questionTab = Array.from(tabButtons).find(btn => {
+                        const label = btn.querySelector('.tab-label')?.textContent?.trim() || btn.textContent?.trim();
+                        return label === 'Question';
+                    });
+                    if (questionTab) {
+                        questionTab.click();
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+                } else {
+                    markdown += '## Solution\n\n*Solution is locked/not available yet.*\n\n';
+                }
+            }
+
+            // === 6. RESOURCE LINKS ===
+            const resourceLinks = probStatement ? Array.from(probStatement.querySelectorAll('a')).filter(a => {
+                const href = (a.href || a.getAttribute('src') || '').toLowerCase();
+                return href.includes('python-tutor') || href.includes('starboard') || href.includes('pyodide') || href.includes('colab');
+            }) : [];
+
+            if (resourceLinks.length > 0) {
+                markdown += '## Resource Links\n\n';
+                resourceLinks.forEach(a => {
+                    const href = a.href || a.getAttribute('src') || '';
+                    const text = a.textContent.trim() || 'Link';
+                    let icon = '🔗';
+                    if (text.toLowerCase().includes('python tutor') || href.includes('python-tutor')) icon = '🐍';
+                    else if (text.toLowerCase().includes('starboard') || href.includes('starboard')) icon = '📓';
+                    else if (text.toLowerCase().includes('pyodide') || href.includes('pyodide')) icon = '⚡';
+                    else if (href.includes('colab')) icon = '📝';
+                    markdown += `- ${icon} [${text}](${href})\n`;
+                });
+                markdown += '\n';
+            }
+
+            markdown += '---\n\n';
+            return markdown;
         }
 
         let assignmentTitle = (
@@ -288,6 +512,37 @@
         markdown += `> **Course:** ${courseTitle}\n\n`;
 
         async function scrapeContent() {
+            // === AUTO-START: If on start page, click checkbox + Start Assessment ===
+            try {
+                const startPage = document.querySelector('app-assessment-start-page');
+                if (startPage) {
+                    console.log('[IITM Scraper] Detected start page — auto-clicking checkbox + Start...');
+                    // Click the checkbox if not already checked
+                    const checkbox = startPage.querySelector('input[type="checkbox"]');
+                    if (checkbox && !checkbox.checked) {
+                        checkbox.click();
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+                    // Click Start Assessment button
+                    const startBtn = startPage.querySelector('button[aria-label="Start Assessment"], .page-footer button.btn-success');
+                    if (startBtn) {
+                        startBtn.click();
+                        console.log('[IITM Scraper] Clicked Start Assessment — waiting for questions to load...');
+                        // Wait for the assessment view to appear (up to 5 seconds)
+                        for (let i = 0; i < 50; i++) {
+                            await new Promise(r => setTimeout(r, 100));
+                            if (document.querySelector('.assessment-question-view, .assessment-paginator, button.chip')) {
+                                console.log('[IITM Scraper] Assessment loaded!');
+                                await new Promise(r => setTimeout(r, 500)); // Extra settle time
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[IITM Scraper] Auto-start failed:', e);
+            }
+
             const includeAssets = localStorage.getItem('iitm-include-assets') === 'true';
             window.__capturedImages = [];
 
@@ -375,6 +630,18 @@
                 console.log('IITM Scraper: Fast Scraping Mode...');
             }
             // --- End Specialized Handling ---
+
+            // === GRPA / Programming Assignment Detection ===
+            const progContainer = document.querySelector('app-programming-assignment-view, app-programming-code-editor');
+            if (progContainer) {
+                console.log('[IITM Scraper] Programming assignment detected — using GrPA scraper');
+                const grpaMarkdown = await scrapeProgrammingAssignment();
+                if (grpaMarkdown) {
+                    markdown += grpaMarkdown;
+                }
+                finalizeExport();
+                return;
+            }
 
             // UI Synchronization: Wait for the main dynamic layout or spinner to settle
             for (let initW = 0; initW < 40; initW++) {
@@ -784,6 +1051,8 @@
 
                     // Remove all question rows/cards to get only the intro
                     introClone.querySelectorAll('.gcb-question-row, mat-card, .question-container, .mcq-question, .result-card').forEach(q => q.remove());
+                    // Remove NEW portal assessment elements (questions, paginator, choices, panels)
+                    introClone.querySelectorAll('.assessment-question-view, app-assessment-question-view, .assessment-paginator, .question-header, .question-label, .question-marks, .choices-fieldset, button.choice, .resizable-shell, .footer').forEach(q => q.remove());
                     // Remove empty placeholders, scripts, buttons
                     introClone.querySelectorAll('noscript, script, .qt-warning, button, .mat-mdc-button, .action-bar').forEach(el => el.remove());
 
@@ -832,61 +1101,277 @@
 
                 if (questionBlocks.length === 0 && !ytIframe) {
                     // Check for PAGINATED question UI (new portal: 1 question at a time with Next/Prev)
-                    // Detect by looking for "Question X / Y" text or navigation dots
+                    // Detect by looking for "Question X / Y" text or navigation chips
                     const questionCounter = document.body.innerText.match(/Question\s+(\d+)\s*\/\s*(\d+)/i);
                     const nextBtn = Array.from(document.querySelectorAll('button')).find(btn => {
                         const text = (btn.textContent || '').toLowerCase().trim();
                         return text.includes('next') && !btn.disabled;
                     });
+                    // New portal uses .chip buttons, old portal uses .question-nav-dot etc.
                     const navDots = document.querySelectorAll('.question-nav-dot, .dot-item, [class*="step-indicator"] button, [class*="pagination"] button');
+                    const chipButtons = document.querySelectorAll('button.chip');
 
-                    if (questionCounter && (nextBtn || navDots.length > 0)) {
+                    // Detect NEW Angular portal assessment view
+                    const isNewPortalAssessment = !!document.querySelector('.assessment-question-view, app-assessment-question-view');
+
+                    if (questionCounter && (nextBtn || navDots.length > 0 || chipButtons.length > 0)) {
                         // PAGINATED MODE: Navigate through questions one at a time
                         const totalQ = parseInt(questionCounter[2]) || 0;
-                        console.log(`[IITM Scraper] Detected paginated UI: ${totalQ} questions. Navigating through each...`);
+                        scrapeMetrics.totalQuestions = totalQ;
+                        console.log(`[IITM Scraper] Detected paginated UI: ${totalQ} questions. New portal: ${isNewPortalAssessment}. Navigating...`);
+
+                        // Helper: Clean HTML tags from text
+                        const stripHtml = (html) => {
+                            const tmp = document.createElement('div');
+                            tmp.innerHTML = html;
+                            return tmp.textContent || tmp.innerText || '';
+                        };
+
+                        // Helper: Extract clean markdown from backend-html containers
+                        // Recursively walks the DOM tree and builds clean text with inline code
+                        const extractBackendHtml = (el) => {
+                            if (!el) return '';
+                            const main = el.querySelector('main') || el;
+                            
+                            const walkNode = (node, isTopLevel) => {
+                                if (node.nodeType === 3) return node.textContent; // Text node
+                                if (node.nodeType !== 1) return ''; // Not an element
+                                
+                                const tag = node.tagName;
+                                
+                                // Skip hidden elements
+                                if (node.style && node.style.display === 'none') return '';
+                                
+                                // Inline code: span with monospace font
+                                if (tag === 'SPAN' && node.style && node.style.fontFamily && node.style.fontFamily.includes('monospace')) {
+                                    return '`' + node.textContent + '`';
+                                }
+                                
+                                // Also check for <code> tags
+                                if (tag === 'CODE') {
+                                    return '`' + node.textContent + '`';
+                                }
+                                
+                                // Pre/code blocks
+                                if (tag === 'PRE' || (tag === 'DIV' && node.querySelector('gcb-code'))) {
+                                    const code = node.querySelector('code') || node;
+                                    const lang = code.className?.match(/language-(\w+)/)?.[1] || '';
+                                    return '\n\n```' + lang + '\n' + code.textContent.trim() + '\n```\n\n';
+                                }
+                                
+                                // Images
+                                if (tag === 'IMG') {
+                                    const src = node.src || node.getAttribute('src') || '';
+                                    const alt = node.alt || 'image';
+                                    return src ? '![' + alt + '](' + src + ')' : '';
+                                }
+                                
+                                // Block elements: add newlines
+                                const isBlock = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'TR', 'BLOCKQUOTE'].includes(tag);
+                                
+                                // Walk children
+                                let result = '';
+                                for (const child of node.childNodes) {
+                                    result += walkNode(child, false);
+                                }
+                                
+                                // Add newlines for block elements
+                                if (isBlock && result.trim()) {
+                                    return '\n' + result.trim() + '\n';
+                                }
+                                return result;
+                            };
+                            
+                            let text = walkNode(main, true);
+                            // Clean up excessive newlines
+                            text = text.replace(/\n{3,}/g, '\n\n').trim();
+                            return text;
+                        };
+
+                        // Helper: Convert HTML element to clean markdown (for question text with code blocks)
+                        const htmlToCleanMarkdown = (el) => {
+                            if (!el) return '';
+                            const clone = el.cloneNode(true);
+                            
+                            // Convert gcb-code / pre > code blocks to markdown fenced blocks
+                            clone.querySelectorAll('gcb-code, pre').forEach(codeBlock => {
+                                const code = codeBlock.querySelector('code');
+                                const text = (code || codeBlock).textContent.trim();
+                                const lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
+                                const mdBlock = '\n\n```' + lang + '\n' + text + '\n```\n\n';
+                                codeBlock.outerHTML = mdBlock;
+                            });
+                            
+                            // Convert inline code spans
+                            clone.querySelectorAll('code').forEach(codeEl => {
+                                if (!codeEl.closest('pre')) {
+                                    codeEl.outerHTML = '`' + codeEl.textContent + '`';
+                                }
+                            });
+                            
+                            // Convert images
+                            clone.querySelectorAll('img').forEach(img => {
+                                const src = img.src || img.getAttribute('src') || '';
+                                const alt = img.alt || 'image';
+                                if (src) img.outerHTML = `![${alt}](${src})`;
+                            });
+                            
+                            // Remove buttons, navigation elements
+                            clone.querySelectorAll('button, .nav-dots, .question-nav, .pagination, .assessment-paginator, .footer').forEach(el => el.remove());
+                            
+                            return clone.textContent.trim();
+                        };
 
                         for (let q = 0; q < totalQ; q++) {
-                            await new Promise(r => setTimeout(r, 400)); // Wait for question to render
+                            await new Promise(r => setTimeout(r, 350)); // Wait for Angular rendering
 
-                            // Capture current question content
-                            const qContent = document.querySelector('.question-content, .mcq-content, .pa-question, .assessment-question, .question-body');
-                            const qText = document.querySelector('.question-text, .mcq-question-text, .qt-question');
-
-                            // Also try the main content area for the question
-                            const mainQ = qContent || qText || document.querySelector('.unit-body, .assessment-body');
-
-                            if (mainQ) {
-                                const qClone = mainQ.cloneNode(true);
-                                // Clean up navigation elements from the clone
-                                qClone.querySelectorAll('button, .nav-dots, .question-nav, .pagination').forEach(el => el.remove());
-                                processNode(qClone);
-                                const qMarkdown = turndownService.turndown(qClone.innerHTML).trim();
-                                if (qMarkdown) {
-                                    markdown += `### Question ${q + 1}\n\n${qMarkdown}\n\n---\n\n`;
+                            if (isNewPortalAssessment) {
+                                // === NEW ANGULAR PORTAL ===
+                                // Extract question text
+                                const questionLabel = document.querySelector('.question-label, h2.question-label');
+                                const questionTextEl = document.querySelector('.assessment-question-view .text.backend-html') 
+                                    || document.querySelector('.column:first-child .panel .text')
+                                    || document.querySelector('.panel:not(.right-panel) .text')
+                                    || document.querySelector('.text.backend-html');
+                                
+                                let questionText = '';
+                                if (questionTextEl) {
+                                    questionText = extractBackendHtml(questionTextEl);
+                                    console.log('[IITM Scraper] Q' + (q+1) + ' text:', questionText.substring(0, 120));
+                                } else if (questionLabel) {
+                                    // Fallback: try to get question from the panel
+                                    const panel = questionLabel.closest('.panel');
+                                    if (panel) {
+                                        questionText = extractBackendHtml(panel.querySelector('.text'));
+                                    }
                                 }
+                                
+                                // Extract marks
+                                const marksEl = document.querySelector('.question-marks');
+                                const marksText = marksEl ? marksEl.textContent.trim() : '';
+                                
+                                // Extract options (MCQ)
+                                const choices = Array.from(document.querySelectorAll('button.choice'));
+                                let optionsMd = '';
+                                if (choices.length > 0) {
+                                    optionsMd = '\n\n**Options:**\n\n';
+                                    choices.forEach(choice => {
+                                        const letter = choice.querySelector('.choice-letter')?.textContent?.trim() || '';
+                                        const textEl = choice.querySelector('.choice-text');
+                                        let optionText = '';
+                                        if (textEl) {
+                                            // Extract from backend-html
+                                            const main = textEl.querySelector('main');
+                                            if (main) {
+                                                optionText = main.textContent.trim();
+                                            } else {
+                                                optionText = textEl.textContent.trim();
+                                            }
+                                        }
+                                        if (letter && optionText) {
+                                            optionsMd += `- **${letter}** ${optionText}\n`;
+                                        }
+                                    });
+                                }
+                                
+                                // Check for text input (non-MCQ)
+                                const textInput = document.querySelector('input[type="text"], input[type="number"], textarea:not(.ace_text-input)');
+                                let inputMd = '';
+                                if (textInput && choices.length === 0) {
+                                    inputMd = '\n\n**Your Answer:** \`' + (textInput.value || '(Not answered)') + '\`\n';
+                                }
+                                
+                                // Check for code blocks in question (gcb-code elements in the question panel)
+                                const questionPanel = document.querySelector('.assessment-question-view .column:first-child .panel')
+                                    || document.querySelector('.assessment-question-view .panel:not(.right-panel)');
+                                let codeBlockMd = '';
+                                if (questionPanel) {
+                                    questionPanel.querySelectorAll('gcb-code, pre > code').forEach(gcb => {
+                                        const code = gcb.tagName === 'CODE' ? gcb : gcb.querySelector('code');
+                                        const text = (code || gcb).textContent.trim();
+                                        const lang = code?.className?.match(/language-(\w+)/)?.[1] || 'python';
+                                        if (text) {
+                                            codeBlockMd += '\n\n```' + lang + '\n' + text + '\n```\n';
+                                        }
+                                    });
+                                    // Also check for <pre> blocks directly
+                                    questionPanel.querySelectorAll('pre').forEach(pre => {
+                                        if (!pre.querySelector('gcb-code')) {
+                                            const code = pre.querySelector('code');
+                                            const text = (code || pre).textContent.trim();
+                                            const lang = code?.className?.match(/language-(\w+)/)?.[1] || 'python';
+                                            if (text) codeBlockMd += '\n\n```' + lang + '\n' + text + '\n```\n';
+                                        }
+                                    });
+                                }
+                                
+                                // Build clean markdown for this question
+                                let qMarkdown = '';
+                                if (questionText) {
+                                    qMarkdown += questionText + '\n';
+                                }
+                                if (codeBlockMd) {
+                                    qMarkdown += codeBlockMd;
+                                }
+                                if (optionsMd) {
+                                    qMarkdown += optionsMd;
+                                }
+                                if (inputMd) {
+                                    qMarkdown += inputMd;
+                                }
+                                
+                                if (qMarkdown.trim()) {
+                                    markdown += `### Question ${q + 1} / ${totalQ}\n\n${marksText ? '> ' + marksText + '\n\n' : ''}${qMarkdown}\n---\n\n`;
+                                }
+                                
                             } else {
-                                // Fallback: grab everything in the content area
-                                const contentArea = document.querySelector('.course-content .scrollable-view, .unit-view, .scrollable-view');
-                                if (contentArea) {
-                                    const clone = contentArea.cloneNode(true);
-                                    clone.querySelectorAll('.app-side-nav, .side-nav, nav, button, .nav-dots').forEach(el => el.remove());
-                                    processNode(clone);
-                                    const fallbackMd = turndownService.turndown(clone.innerHTML).trim();
-                                    if (fallbackMd) {
-                                        markdown += `### Question ${q + 1}\n\n${fallbackMd}\n\n---\n\n`;
+                                // === OLD PORTAL (fallback) ===
+                                const qContent = document.querySelector('.question-content, .mcq-content, .pa-question, .assessment-question, .question-body');
+                                const qText = document.querySelector('.question-text, .mcq-question-text, .qt-question');
+                                const mainQ = qContent || qText || document.querySelector('.unit-body, .assessment-body');
+
+                                if (mainQ) {
+                                    const qClone = mainQ.cloneNode(true);
+                                    qClone.querySelectorAll('button, .nav-dots, .question-nav, .pagination').forEach(el => el.remove());
+                                    processNode(qClone);
+                                    const qMd = turndownService.turndown(qClone.innerHTML).trim();
+                                    if (qMd) {
+                                        markdown += `### Question ${q + 1}\n\n${qMd}\n\n---\n\n`;
+                                    }
+                                } else {
+                                    const contentArea = document.querySelector('.course-content .scrollable-view, .unit-view, .scrollable-view');
+                                    if (contentArea) {
+                                        const clone = contentArea.cloneNode(true);
+                                        clone.querySelectorAll('.app-side-nav, .side-nav, nav, button, .nav-dots').forEach(el => el.remove());
+                                        processNode(clone);
+                                        const fallbackMd = turndownService.turndown(clone.innerHTML).trim();
+                                        if (fallbackMd) {
+                                            markdown += `### Question ${q + 1}\n\n${fallbackMd}\n\n---\n\n`;
+                                        }
                                     }
                                 }
                             }
 
-                            // Click Next button if not on last question
-                            if (q < totalQ - 1 && nextBtn) {
-                                const freshNextBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-                                    const text = (btn.textContent || '').toLowerCase().trim();
-                                    return text.includes('next') && !btn.disabled;
-                                });
-                                if (freshNextBtn) {
-                                    freshNextBtn.click();
-                                    await new Promise(r => setTimeout(r, 300)); // Wait for next question to load
+                            // Navigate to next question
+                            if (q < totalQ - 1) {
+                                if (isNewPortalAssessment) {
+                                    // New portal: click the chip button for next question
+                                    const chips = document.querySelectorAll('button.chip');
+                                    const nextChip = chips[q + 1]; // 0-indexed, so q+1 is next
+                                    if (nextChip) {
+                                        nextChip.click();
+                                        await new Promise(r => setTimeout(r, 350)); // Wait for Angular chip navigation
+                                    }
+                                } else {
+                                    // Old portal: click Next button
+                                    const freshNextBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                                        const text = (btn.textContent || '').toLowerCase().trim();
+                                        return text.includes('next') && !btn.disabled;
+                                    });
+                                    if (freshNextBtn) {
+                                        freshNextBtn.click();
+                                        await new Promise(r => setTimeout(r, 300));
+                                    }
                                 }
                             }
                         }

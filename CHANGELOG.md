@@ -4,6 +4,35 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.0] - 2026-06-28
+
+### Fixed
+- **New Portal Assessment Scraper** — Complete rewrite for Angular portal's paginated assessment view (`.assessment-question-view`). Extracts clean markdown from `.text.backend-html`, `button.choice`, and `.chip` navigation.
+- **MCQ Options Extraction** — Options now extracted as clean `- **A.** text` format from `button.choice > .choice-letter` + `.choice-text` instead of raw HTML dumps.
+- **Recursive DOM Walker** — New `extractBackendHtml()` function properly handles nested `<main><div><p><span style="font-family: monospace">` structures for inline code formatting.
+- **Introduction Cleanup** — Portal header noise ("Due Today", "Saved", date strings) filtered out of intro section.
+- **Question Count** — `total_questions` frontmatter now correctly set to actual count (was showing 0).
+- **Chip Navigation** — Scraper uses `button.chip[q+1]" to navigate between questions instead of fragile text-based Next button matching.
+
+### Added
+- **Auto-Start Assessment** — Scraper now automatically clicks the checkbox and "Start Assessment" button if on the start page, then waits for questions to load. No manual clicking needed.
+- **Speed Optimization** — Wait times reduced from 800ms to 350ms per question. 29-question assignment now scrapes in ~15 seconds instead of ~40.
+- **GrPA DOM Snapshot** — Captured `app-programming-assignment-view` structure for future GrPA scraper support (ace editor, test cases, submission toolbar).
+
+### Added (GrPA)
+- **GrPA Problem Statement** — Full extraction from `.prob-statement` with recursive DOM walker handling nested `<details>`, `<ol>`, `<pre><code>`, `<a>` links.
+- **Template Code** — Extracts from `<details>` blocks and ace editor. Labels as template vs user code.
+- **Test Cases Tab** — Auto-clicks "Test Cases" tab, extracts content, clicks back to Question.
+- **Solution Tab** — Auto-clicks "Solution" tab if available, extracts official solution code.
+- **Resource Links** — Extracts Python Tutor, Starboard, Pyodide links with icons.
+- **Ace Editor Sync** — Reads template/user code from ace editor instance.
+
+### Known Issues (Next)
+- Bulk scraper not yet tested with new portal navigation
+- Progress tracker only works for currently expanded course sections
+
+---
+
 ## [1.8.0] - 2026-06-23
 
 ### Fixed

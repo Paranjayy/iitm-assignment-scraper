@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IITM Assignment Scraper",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "description": "Adds a button to download IITM online degree assignments as a clean Markdown file.",
   "permissions": [
     "activeTab",
@@ -31,7 +31,12 @@
         "*://study.iitm.ac.in/*",
         "*://score-checker-379619009600.asia-south1.run.app/*"
       ],
-      "js": ["turndown.js", "jszip.min.js", "content.js", "portal_enhancements.js"],
+      "js": [
+        "turndown.js",
+        "jszip.min.js",
+        "content.js",
+        "portal_enhancements.js"
+      ],
       "css": ["inject_button.css"],
       "run_at": "document_idle"
     }
