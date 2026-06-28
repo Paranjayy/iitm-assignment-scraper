@@ -303,8 +303,11 @@
             const probStatement = document.querySelector('.prob-statement, .pa-question .backend-html, app-pa-question .backend-html');
             if (probStatement) {
                 markdown += '## Problem Statement\n\n';
-                // Extract text content, skipping <details> blocks (they're extracted separately)
-                const probMd = extractHtml(probStatement, true);
+                // Extract text content, skipping <details> and <pre> blocks (extracted separately)
+                // Clone the node and remove <details>/<pre> before extracting
+                const probClone = probStatement.cloneNode(true);
+                probClone.querySelectorAll('details, pre, .code-block').forEach(el => el.remove());
+                const probMd = extractHtml(probClone, true);
                 markdown += probMd + '\n\n';
                 console.log('[GRPA] Problem statement extracted:', probMd.substring(0, 100));
             }
@@ -381,19 +384,40 @@
                         }
                     }
 
-                    // Also look for specific test case elements
-                    const testCaseRows = document.querySelectorAll('.test-case-row, .test-case, [class*="test-case"]');
-                    if (testCaseRows.length > 0 && !markdown.includes('## Test Cases')) {
+                    // Try to extract test cases by clicking each case button
+                    const caseButtons = document.querySelectorAll('.case-button, .case-tab, [class*="case-item"], .test-case-tab');
+                    if (caseButtons.length > 0) {
                         markdown += '## Test Cases\n\n';
-                        testCaseRows.forEach((row, i) => {
-                            const input = row.querySelector('.input, .test-input, td:nth-child(1)')?.textContent?.trim() || '';
-                            const expected = row.querySelector('.expected, .expected-output, td:nth-child(2)')?.textContent?.trim() || '';
-                            if (input || expected) {
-                                markdown += `**Test ${i + 1}:**\n`;
-                                if (input) markdown += `- Input: \`${input}\`\n`;
-                                if (expected) markdown += `- Expected: \`${expected}\`\n\n`;
+                        for (let ci = 0; ci < caseButtons.length; ci++) {
+                            caseButtons[ci].click();
+                            await new Promise(r => setTimeout(r, 300));
+                            // Extract the visible test case content
+                            const caseContent = document.querySelector('.case-content, .test-case-detail, .test-case-body, [class*="case-detail"]');
+                            if (caseContent) {
+                                const input = caseContent.querySelector('.input, .test-input, [class*="input"]')?.textContent?.trim() || '';
+                                const expected = caseContent.querySelector('.expected, .expected-output, [class*="expected"]')?.textContent?.trim() || '';
+                                if (input || expected) {
+                                    markdown += `**Case ${ci + 1}:**\n`;
+                                    if (input) markdown += `- Input: \`${input}\`\n`;
+                                    if (expected) markdown += `- Expected: \`${expected}\`\n\n`;
+                                }
                             }
-                        });
+                        }
+                    } else {
+                        // Fallback: grab all test case text
+                        const testCaseRows = document.querySelectorAll('.test-case-row, .test-case, [class*="test-case"]');
+                        if (testCaseRows.length > 0 && !markdown.includes('## Test Cases')) {
+                            markdown += '## Test Cases\n\n';
+                            testCaseRows.forEach((row, i) => {
+                                const input = row.querySelector('.input, .test-input, td:nth-child(1)')?.textContent?.trim() || '';
+                                const expected = row.querySelector('.expected, .expected-output, td:nth-child(2)')?.textContent?.trim() || '';
+                                if (input || expected) {
+                                    markdown += `**Case ${i + 1}:**\n`;
+                                    if (input) markdown += `- Input: \`${input}\`\n`;
+                                    if (expected) markdown += `- Expected: \`${expected}\`\n\n`;
+                                }
+                            });
+                        }
                     }
 
                     // Click back to Question tab
