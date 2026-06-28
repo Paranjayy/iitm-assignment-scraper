@@ -603,7 +603,7 @@
             const captureStart = Date.now();
             // === AUTO-START: If on start page, click checkbox + Start Assessment ===
             try {
-                const startPage = document.querySelector('app-assessment-start-page');
+                const startPage = document.querySelector('app-assessment-start-page, app-pa-start-page');
                 if (startPage) {
                     bulkLog(`📋 [${i+1}] Auto-clicking guidelines checkbox + Start Assessment...`);
                     const checkbox = startPage.querySelector('input[type="checkbox"]');
@@ -611,12 +611,12 @@
                         checkbox.click();
                         await new Promise(r => setTimeout(r, 300));
                     }
-                    const startBtn = startPage.querySelector('button[aria-label="Start Assessment"], .page-footer button.btn-success');
+                    const startBtn = startPage.querySelector('button[aria-label="Start Assessment"], button[aria-label="Start Assignment"], .page-footer button.btn-success');
                     if (startBtn) {
                         startBtn.click();
                         for (let w = 0; w < 50; w++) {
                             await new Promise(r => setTimeout(r, 100));
-                            if (document.querySelector('.assessment-question-view, .assessment-paginator, button.chip, app-assessment-question-view')) {
+                            if (document.querySelector('.assessment-question-view, .assessment-paginator, button.chip, app-assessment-question-view, app-programming-assignment-view, .pa-code-editor')) {
                                 bulkLog(`✅ [${i+1}] Assessment loaded after ${(w*100)}ms`);
                                 await new Promise(r => setTimeout(r, 500));
                                 break;

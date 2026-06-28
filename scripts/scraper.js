@@ -539,7 +539,7 @@
         async function scrapeContent() {
             // === AUTO-START: If on start page, click checkbox + Start Assessment ===
             try {
-                const startPage = document.querySelector('app-assessment-start-page');
+                const startPage = document.querySelector('app-assessment-start-page, app-pa-start-page');
                 if (startPage) {
                     console.log('[IITM Scraper] Detected start page — auto-clicking checkbox + Start...');
                     // Click the checkbox if not already checked
@@ -549,14 +549,14 @@
                         await new Promise(r => setTimeout(r, 300));
                     }
                     // Click Start Assessment button
-                    const startBtn = startPage.querySelector('button[aria-label="Start Assessment"], .page-footer button.btn-success');
+                    const startBtn = startPage.querySelector('button[aria-label="Start Assessment"], button[aria-label="Start Assignment"], .page-footer button.btn-success');
                     if (startBtn) {
                         startBtn.click();
                         console.log('[IITM Scraper] Clicked Start Assessment — waiting for questions to load...');
                         // Wait for the assessment view to appear (up to 5 seconds)
                         for (let i = 0; i < 50; i++) {
                             await new Promise(r => setTimeout(r, 100));
-                            if (document.querySelector('.assessment-question-view, .assessment-paginator, button.chip')) {
+                            if (document.querySelector('.assessment-question-view, .assessment-paginator, button.chip, app-programming-assignment-view, .pa-code-editor')) {
                                 console.log('[IITM Scraper] Assessment loaded!');
                                 await new Promise(r => setTimeout(r, 500)); // Extra settle time
                                 break;
