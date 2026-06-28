@@ -384,39 +384,60 @@
                         }
                     }
 
-                    // Try to extract test cases by clicking each case button
-                    const caseButtons = document.querySelectorAll('.case-button, .case-tab, [class*="case-item"], .test-case-tab');
-                    if (caseButtons.length > 0) {
+                    // Extract test cases — click each case tab to reveal its content
+                    // Wait a bit more for test case content to load
+                    await new Promise(r => setTimeout(r, 500));
+                    
+                    // Find ALL clickable case elements (various selectors)
+                    const allCaseButtons = document.querySelectorAll(
+                        '[class*="case-tab"], [class*="case-item"], [class*="case-button"], ' +
+                        'button[class*="case"], .tab-item[class*="case"], ' +
+                        '[role="tab"][class*="case"], [class*="test-case"] button'
+                    );
+                    
+                    // Also try finding by text content "Case N"
+                    const caseByText = Array.from(document.querySelectorAll('button, [role="tab"], [role="button"]')).filter(el => {
+                        const t = el.textContent.trim();
+                        return /^case\s*\d+$/i.test(t);
+                    });
+                    
+                    const uniqueCaseButtons = [...new Set([...allCaseButtons, ...caseByText])];
+                    
+                    if (uniqueCaseButtons.length > 0) {
                         markdown += '## Test Cases\n\n';
-                        for (let ci = 0; ci < caseButtons.length; ci++) {
-                            caseButtons[ci].click();
-                            await new Promise(r => setTimeout(r, 300));
-                            // Extract the visible test case content
-                            const caseContent = document.querySelector('.case-content, .test-case-detail, .test-case-body, [class*="case-detail"]');
-                            if (caseContent) {
-                                const input = caseContent.querySelector('.input, .test-input, [class*="input"]')?.textContent?.trim() || '';
-                                const expected = caseContent.querySelector('.expected, .expected-output, [class*="expected"]')?.textContent?.trim() || '';
-                                if (input || expected) {
+                        console.log('[GRPA] Found', uniqueCaseButtons.length, 'case buttons');
+                        
+                        for (let ci = 0; ci < uniqueCaseButtons.length; ci++) {
+                            uniqueCaseButtons[ci].click();
+                            await new Promise(r => setTimeout(r, 400));
+                            
+                            // Extract ALL visible input/expected pairs from the test area
+                            // The test area might have multiple rows
+                            const testArea = document.querySelector('.tabs-content, .test-cases, .pa-test-cases, [class*="test-case"]');
+                            if (testArea) {
+                                // Get all input blocks and expected output blocks
+                                const inputs = testArea.querySelectorAll('[class*="input"], .test-input, .input-block, pre, code');
+                                const expecteds = testArea.querySelectorAll('[class*="expected"], [class*="output"], .expected-output, .output-block');
+                                
+                                // Try to get structured data
+                                const inputText = testArea.querySelector('[class*="input"]')?.textContent?.trim() || '';
+                                const expectedText = testArea.querySelector('[class*="expected"], [class*="output"]')?.textContent?.trim() || '';
+                                
+                                if (inputText || expectedText) {
                                     markdown += `**Case ${ci + 1}:**\n`;
-                                    if (input) markdown += `- Input: \`${input}\`\n`;
-                                    if (expected) markdown += `- Expected: \`${expected}\`\n\n`;
+                                    if (inputText) markdown += `- Input:\n\`\`\`\n${inputText}\n\`\`\`\n`;
+                                    if (expectedText) markdown += `- Expected:\n\`\`\`\n${expectedText}\n\`\`\`\n\n`;
                                 }
                             }
                         }
                     } else {
-                        // Fallback: grab all test case text
-                        const testCaseRows = document.querySelectorAll('.test-case-row, .test-case, [class*="test-case"]');
-                        if (testCaseRows.length > 0 && !markdown.includes('## Test Cases')) {
-                            markdown += '## Test Cases\n\n';
-                            testCaseRows.forEach((row, i) => {
-                                const input = row.querySelector('.input, .test-input, td:nth-child(1)')?.textContent?.trim() || '';
-                                const expected = row.querySelector('.expected, .expected-output, td:nth-child(2)')?.textContent?.trim() || '';
-                                if (input || expected) {
-                                    markdown += `**Case ${i + 1}:**\n`;
-                                    if (input) markdown += `- Input: \`${input}\`\n`;
-                                    if (expected) markdown += `- Expected: \`${expected}\`\n\n`;
-                                }
-                            });
+                        // Fallback: just grab all test case text content
+                        const testContent = document.querySelector('.tabs-content, .test-cases');
+                        if (testContent) {
+                            const tcText = extractHtml(testContent);
+                            if (tcText.trim()) {
+                                markdown += '## Test Cases\n\n' + tcText + '\n\n';
+                            }
                         }
                     }
 
