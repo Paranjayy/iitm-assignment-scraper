@@ -252,8 +252,8 @@
                           || "GrPA_Assignment";
             console.log(`[GRPA] Detected programming assignment: ${title}`);
 
-            let markdown = `# ${title}\n\n`;
-            markdown += `> **Course:** ${courseTitle || 'Unknown'}\n\n`;
+            // Title is already added by scrapeContent(), just add GrPA-specific header
+            let markdown = '';
             if (detectedWeek) markdown += `> ${detectedWeek}\n\n`;
             markdown += '---\n\n';
 
@@ -273,7 +273,8 @@
                     if (tag === 'PRE') {
                         const code = node.querySelector('code');
                         const text = (code || node).textContent.trim();
-                        const lang = code?.className?.match(/language-(\w+)/)?.[1] || 'python';
+                        let lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
+                        if (!lang || lang === 'plaintext') lang = 'python';
                         return '\n\n```' + lang + '\n' + text + '\n```\n\n';
                     }
                     if (tag === 'IMG') {
@@ -302,8 +303,8 @@
             const probStatement = document.querySelector('.prob-statement, .pa-question .backend-html, app-pa-question .backend-html');
             if (probStatement) {
                 markdown += '## Problem Statement\n\n';
-                // Extract text content, preserving code blocks and structure
-                const probMd = extractHtml(probStatement);
+                // Extract text content, skipping <details> blocks (they're extracted separately)
+                const probMd = extractHtml(probStatement, true);
                 markdown += probMd + '\n\n';
                 console.log('[GRPA] Problem statement extracted:', probMd.substring(0, 100));
             }
@@ -1289,7 +1290,8 @@
                                     questionPanel.querySelectorAll('gcb-code, pre > code').forEach(gcb => {
                                         const code = gcb.tagName === 'CODE' ? gcb : gcb.querySelector('code');
                                         const text = (code || gcb).textContent.trim();
-                                        const lang = code?.className?.match(/language-(\w+)/)?.[1] || 'python';
+                                        let lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
+                        if (!lang || lang === 'plaintext') lang = 'python';
                                         if (text) {
                                             codeBlockMd += '\n\n```' + lang + '\n' + text + '\n```\n';
                                         }
@@ -1299,7 +1301,8 @@
                                         if (!pre.querySelector('gcb-code')) {
                                             const code = pre.querySelector('code');
                                             const text = (code || pre).textContent.trim();
-                                            const lang = code?.className?.match(/language-(\w+)/)?.[1] || 'python';
+                                            let lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
+                        if (!lang || lang === 'plaintext') lang = 'python';
                                             if (text) codeBlockMd += '\n\n```' + lang + '\n' + text + '\n```\n';
                                         }
                                     });
