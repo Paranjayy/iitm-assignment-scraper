@@ -4,6 +4,18 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.1] - 2026-07-01
+
+### Fixed
+- **GrPA Test Cases Extraction (new portal)** — Replaced old-selector heuristics (`.case-btn`, `[class*="case-tab"]`, etc.) with the actual new portal DOM: accordion panels (`.accordion-panel` → `button.accordion-header`) for Public/Private groups, case pills (`button.test-case-pill`) for individual cases, and `.test-case-block > .wrapper .title` / `.content` for Input / Expected Output. Auto-expands collapsed accordions, clicks each case pill, waits for content swap, and extracts per-case Input/Expected blocks with fingerprint dedup.
+- **Deadline-Locked Groups** — Private test case accordions that show "You can view the Private Test Cases after the deadline has passed" are now correctly handled as locked (emits a `### 🔒 Private Test Cases` block with the deadline message instead of crashing).
+- **Public Test Count Capture** — Reads the `.stats` text from the Public/Private accordion header to capture pass/total into `scrapeMetrics.publicTestsPassed/Total` and `privateTestsPassed/Total`.
+
+### Notes
+- Same fix applied to both code paths: the early `scrapeProgrammingAssignment()` GrPA flow AND the defensive branch inside `scrapeContent()`'s tab loop (kept as fallback for any future tabbed content).
+
+---
+
 ## [1.9.0] - 2026-06-28
 
 ### Fixed

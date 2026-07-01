@@ -358,7 +358,7 @@
                 }
             }
 
-            // === 4. TEST CASES ===
+            // === 4. TEST CASES (NEW PORTAL: accordion structure) ===
             // Click the "Test Cases" tab
             const tabButtons = document.querySelectorAll('button[role="tab"]');
             let testCasesTab = null;
@@ -377,71 +377,97 @@
                     testCasesTab.click();
                     await new Promise(r => setTimeout(r, 800)); // Wait for tab content to load
 
-                    // Extract test case content
-                    const testCasesContent = document.querySelector('.tabs-content app-pa-test-cases, .tabs-content .test-cases, .tabs-content');
-                    if (testCasesContent) {
-                        const tcMd = extractHtml(testCasesContent);
-                        if (tcMd.trim()) {
-                            markdown += '## Test Cases\n\n';
-                            markdown += tcMd + '\n\n';
-                            console.log('[GRPA] Test cases extracted:', tcMd.substring(0, 100));
-                        }
-                    }
-
-                    // Extract test cases — click each case tab to reveal its content
-                    // Wait a bit more for test case content to load
-                    await new Promise(r => setTimeout(r, 500));
-                    
-                    // Find ALL clickable case elements (various selectors)
-                    const allCaseButtons = document.querySelectorAll(
-                        '[class*="case-tab"], [class*="case-item"], [class*="case-button"], ' +
-                        'button[class*="case"], .tab-item[class*="case"], ' +
-                        '[role="tab"][class*="case"], [class*="test-case"] button'
+                    // NEW portal: accordion-based test cases
+                    // Structure: app-pa-testcases > .pa-testcases
+                    //   > .accordion-panel (Public / Private)
+                    //     > button.accordion-header (toggle to expand)
+                    //     > .accordion-content
+                    //       > .test-case-card
+                    //         > .test-case-slider > button.test-case-pill (Case 1, Case 2, ...)
+                    //         > .test-case-details > .test-case-block
+                    //           > .wrapper > .title (Input / Expected Output)
+                    //           > .content (raw text)
+                    markdown += '## Test Cases\n\n';
+                    const accordionPanels = document.querySelectorAll(
+                        '.pa-testcases .accordion-panel, app-pa-testcases .accordion-panel'
                     );
-                    
-                    // Also try finding by text content "Case N"
-                    const caseByText = Array.from(document.querySelectorAll('button, [role="tab"], [role="button"]')).filter(el => {
-                        const t = el.textContent.trim();
-                        return /^case\s*\d+$/i.test(t);
-                    });
-                    
-                    const uniqueCaseButtons = [...new Set([...allCaseButtons, ...caseByText])];
-                    
-                    if (uniqueCaseButtons.length > 0) {
-                        markdown += '## Test Cases\n\n';
-                        console.log('[GRPA] Found', uniqueCaseButtons.length, 'case buttons');
-                        
-                        for (let ci = 0; ci < uniqueCaseButtons.length; ci++) {
-                            uniqueCaseButtons[ci].click();
-                            await new Promise(r => setTimeout(r, 400));
-                            
-                            // Extract ALL visible input/expected pairs from the test area
-                            // The test area might have multiple rows
-                            const testArea = document.querySelector('.tabs-content, .test-cases, .pa-test-cases, [class*="test-case"]');
-                            if (testArea) {
-                                // Get all input blocks and expected output blocks
-                                const inputs = testArea.querySelectorAll('[class*="input"], .test-input, .input-block, pre, code');
-                                const expecteds = testArea.querySelectorAll('[class*="expected"], [class*="output"], .expected-output, .output-block');
-                                
-                                // Try to get structured data
-                                const inputText = testArea.querySelector('[class*="input"]')?.textContent?.trim() || '';
-                                const expectedText = testArea.querySelector('[class*="expected"], [class*="output"]')?.textContent?.trim() || '';
-                                
-                                if (inputText || expectedText) {
-                                    markdown += `**Case ${ci + 1}:**\n`;
-                                    if (inputText) markdown += `- Input:\n\`\`\`\n${inputText}\n\`\`\`\n`;
-                                    if (expectedText) markdown += `- Expected:\n\`\`\`\n${expectedText}\n\`\`\`\n\n`;
+
+                    if (accordionPanels.length > 0) {
+                        const seenContent = new Set();
+                        for (const panel of accordionPanels) {
+                            const headerBtn = panel.querySelector('button.accordion-header');
+                            const typeName = (panel.querySelector('.header-title')?.textContent || headerBtn?.textContent || 'Test Cases').trim().replace(/\s+/g, ' ');
+                            const isExpanded = headerBtn?.getAttribute('aria-expanded') === 'true';
+                            const deadlineMsg = panel.querySelector('.deadline-message')?.textContent?.trim();
+                            const isLockedByDeadline = !!deadlineMsg;
+
+                            if (isLockedByDeadline) {
+                                markdown += `### 🔒 ${typeName}\n\n> *${deadlineMsg}*\n\n---\n\n`;
+                                console.log(`[GRPA] ${typeName} locked until deadline.`);
+                                continue;
+                            }
+
+                            // Expand panel if collapsed
+                            const wasCollapsed = !isExpanded;
+                            if (wasCollapsed && headerBtn) {
+                                headerBtn.click();
+                                await new Promise(r => setTimeout(r, 400));
+                            }
+
+                            const casePills = panel.querySelectorAll('button.test-case-pill');
+                            console.log(`[GRPA] ${typeName}: found ${casePills.length} case pill(s).`);
+
+                            let groupAdded = false;
+                            for (let j = 0; j < casePills.length; j++) {
+                                const pill = casePills[j];
+                                if (!pill) continue;
+
+                                const caseName = pill.textContent.trim();
+                                const isActive = pill.classList.contains('is-selected');
+                                if (!isActive) {
+                                    const oldContent = panel.querySelector('.test-case-details')?.innerText || '';
+                                    pill.click();
+                                    for (let scw = 0; scw < 20; scw++) {
+                                        await new Promise(r => setTimeout(r, 120));
+                                        const newContent = panel.querySelector('.test-case-details')?.innerText || '';
+                                        if (newContent && newContent !== oldContent) break;
+                                    }
                                 }
+
+                                const card = panel.querySelector('.test-case-card');
+                                if (!card) continue;
+                                const blocks = card.querySelectorAll('.test-case-block');
+                                let caseHeaderAdded = false;
+
+                                blocks.forEach(block => {
+                                    const titleText = (block.querySelector('.wrapper .title')?.textContent || '').trim();
+                                    const contentText = (block.querySelector('.content')?.textContent || '').replace(/\s+$/, '');
+                                    if (titleText && contentText) {
+                                        const fp = `${typeName}:${caseName}:${titleText}:${contentText}`;
+                                        if (!seenContent.has(fp)) {
+                                            if (!groupAdded) { markdown += `### ${typeName}\n\n`; groupAdded = true; }
+                                            if (!caseHeaderAdded) { markdown += `#### ${caseName}\n\n`; caseHeaderAdded = true; }
+                                            markdown += `**${titleText}:**\n\`\`\`text\n${contentText}\n\`\`\`\n\n`;
+                                            seenContent.add(fp);
+                                        }
+                                    }
+                                });
+                            }
+
+                            // Restore original collapse state
+                            if (wasCollapsed && headerBtn) {
+                                headerBtn.click();
+                                await new Promise(r => setTimeout(r, 150));
                             }
                         }
                     } else {
-                        // Fallback: just grab all test case text content
-                        const testContent = document.querySelector('.tabs-content, .test-cases');
+                        // Fallback: dump the whole test cases container
+                        const testContent = document.querySelector('app-pa-testcases, .tabs-content');
                         if (testContent) {
-                            const tcText = extractHtml(testContent);
-                            if (tcText.trim()) {
-                                markdown += '## Test Cases\n\n' + tcText + '\n\n';
-                            }
+                            const clone = testContent.cloneNode(true);
+                            clone.querySelectorAll('button, app-tab-bar, .test-case-slider').forEach(el => el.remove());
+                            const tcText = extractHtml(clone);
+                            if (tcText.trim()) markdown += tcText + '\n\n';
                         }
                     }
 
