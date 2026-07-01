@@ -193,20 +193,28 @@ function unlockPage(tabId) {
             
             let count = 0;
             const interval = setInterval(() => {
-                doUnlock();
+                try { doUnlock(); } catch(e) {}
                 if (++count > 40) clearInterval(interval); // Run for 80s
             }, 2000);
             
             // MutationObserver to re-unlock if Angular re-applies restrictions
-            const observer = new MutationObserver((mutations) => {
-                for (const m of mutations) {
-                    if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'aria-disabled')) {
-                        doUnlock();
-                        break;
-                    }
+            try {
+                const observer = new MutationObserver((mutations) => {
+                    try {
+                        for (const m of mutations) {
+                            if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'aria-disabled')) {
+                                doUnlock();
+                                break;
+                            }
+                        }
+                    } catch(e) { /* frame may have been removed */ }
+                });
+                if (document.body) {
+                    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'aria-disabled'] });
                 }
-            });
-            observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'aria-disabled'] });
+                // Disconnect on page unload
+                window.addEventListener('beforeunload', () => observer.disconnect(), { once: true });
+            } catch(e) { /* observer setup failed */ }
 
             console.log('🔓 Ultimate Unlocker Active!');
         }
