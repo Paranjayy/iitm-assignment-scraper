@@ -209,6 +209,78 @@ function unlockPage(tabId) {
                 return forcePaste(e);
             }, true);
 
+            // === BEFOREINPUT EVENT (newer, fires before paste) ===
+            // Some handlers call stopImmediatePropagation on keydown which kills the paste event.
+            // beforeinput fires BEFORE keydown is processed for paste actions.
+            document.addEventListener('beforeinput', async (e) => {
+                if (e.inputType !== 'insertFromPaste' && e.inputType !== 'insertFromClipboard') return;
+                LOG('BEFOREINPUT event captured!', 'inputType:', e.inputType, 'target:', e.target?.tagName);
+                const aceContainer = e.target?.closest?.('.ace_editor');
+                if (aceContainer) {
+                    const editor = aceContainer.env?.editor;
+                    if (editor) {
+                        try {
+                            const text = await navigator.clipboard.readText();
+                            if (text) {
+                                LOG('beforeinput: got clipboard text, length:', text.length);
+                                e.preventDefault();
+                                e.stopPropagation();
+                                editor.insert(text);
+                                return;
+                            }
+                        } catch (err) {
+                            LOG('beforeinput: clipboard.readText failed:', err.message);
+                        }
+                    }
+                }
+            }, true);
+
+            // === ACE COMMANDS INTERCEPTOR ===
+            // Hook into ace's command manager so Ctrl+V goes through ace's own commands
+            // even if the browser paste event is killed.
+            const hookAceCommands = () => {
+                document.querySelectorAll('.ace_editor').forEach(el => {
+                    const editor = el.env?.editor;
+                    if (!editor) return;
+                    if (editor.__iitmPatched) return;
+                    editor.__iitmPatched = true;
+                    try {
+                        // ace has a 'paste' command. Replace it with our own.
+                        editor.commands.removeCommand('paste');
+                        editor.commands.addCommand({
+                            name: 'paste',
+                            bindKey: { win: 'Ctrl-V', mac: 'Cmd-V' },
+                            exec: async (ed) => {
+                                LOG('ace paste command fired');
+                                try {
+                                    const text = await navigator.clipboard.readText();
+                                    if (text) {
+                                        ed.insert(text);
+                                        LOG('ace paste command: inserted', text.length, 'chars');
+                                    }
+                                } catch (err) {
+                                    LOG('ace paste command: clipboard.readText failed:', err.message);
+                                    // Fallback: try execCommand
+                                    try {
+                                        const ok = document.execCommand('paste');
+                                        LOG('ace paste command: execCommand result:', ok);
+                                    } catch (e2) {
+                                        LOG('ace paste command: execCommand also failed');
+                                    }
+                                }
+                            },
+                            readOnly: false
+                        });
+                        LOG('ace commands: paste command replaced on editor');
+                    } catch (err) {
+                        LOG('ace commands: failed to patch:', err.message);
+                    }
+                });
+            };
+            hookAceCommands();
+            // Re-hook periodically in case new editors appear
+            setInterval(hookAceCommands, 3000);
+
             // === COPY / CUT INTERCEPTORS ===
             // Angular may block copy/cut with preventDefault on keydown.
             // Strategy: capture-phase copy/cut listener that, if e.preventDefault
