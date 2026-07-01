@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IITM Assignment Scraper",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "Adds a button to download IITM online degree assignments as a clean Markdown file.",
   "permissions": [
     "activeTab",

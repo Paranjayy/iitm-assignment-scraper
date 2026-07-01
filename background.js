@@ -95,28 +95,95 @@ function unlockPage(tabId) {
         target: { tabId: tabId },
         world: 'MAIN',
         func: () => {
-            // Simple unlock: set readOnly to false, don't break Angular
-            document.querySelectorAll('.ace_editor').forEach(el => {
-                try {
-                    const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
-                    if (editor && editor.getReadOnly()) {
-                        editor.setReadOnly(false);
-                    }
-                } catch(e) {}
-                // Fix textarea
-                el.querySelectorAll('textarea').forEach(ta => {
-                    if (ta.hasAttribute('readonly')) ta.removeAttribute('readonly');
-                    if (ta.readOnly) ta.readOnly = false;
-                    if (ta.disabled) ta.disabled = false;
+            // Aggressive unlock for new portal's ace editor + Angular overlays
+            const unlock = () => {
+                document.querySelectorAll('.ace_editor').forEach(el => {
+                    try {
+                        const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
+                        if (editor) {
+                            if (editor.getReadOnly()) editor.setReadOnly(false);
+                            // Force the read-only state off on the session too
+                            try { editor.getSession().setReadOnly(false); } catch(e) {}
+                        }
+                    } catch(e) {}
+                    // Fix textareas (ace uses one for input)
+                    el.querySelectorAll('textarea').forEach(ta => {
+                        ta.removeAttribute('readonly');
+                        ta.removeAttribute('disabled');
+                        ta.removeAttribute('aria-disabled');
+                        ta.readOnly = false;
+                        ta.disabled = false;
+                    });
+                    // Remove the visual read-only overlays Angular puts on top
+                    el.querySelectorAll('.readonly_line').forEach(rl => rl.remove());
+                    // Remove the .is-disabled class on the wrapper that gates input
+                    el.closest('.code-editor')?.classList.remove('is-disabled');
+                    el.closest('.code-editor')?.classList.remove('is-readonly');
+                    // Some portals use a transparent div on top of the scroller to swallow events
+                    el.querySelectorAll('.ace_readonly, .ace_invisible, .ace_obstructive_overlay').forEach(o => o.remove());
                 });
-                // Remove GrPA disabled classes
-                el.closest('.code-editor')?.classList.remove('is-disabled');
-            });
+            };
+            unlock();
+            // Re-run after a delay to catch Angular re-renders
+            setTimeout(unlock, 300);
+            setTimeout(unlock, 1000);
+
             // Right-click
             document.oncontextmenu = null;
             if (document.body) document.body.oncontextmenu = null;
             window.addEventListener('contextmenu', (e) => e.stopPropagation(), true);
-            console.log('🔓 Unlocker Active!');
+
+            // Force text-selection / user-select everywhere (some sites disable it)
+            try {
+                const style = document.createElement('style');
+                style.id = 'iitm-unlock-style';
+                style.textContent = `*, *::before, *::after { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; -webkit-touch-callout: default !important; } .ace_editor, .ace_text-input, .ace_content { -webkit-user-select: text !important; user-select: text !important; } .readonly_line, .ace_obstructive_overlay, .ace_readonly { display: none !important; pointer-events: none !important; }`;
+                document.getElementById('iitm-unlock-style')?.remove();
+                (document.head || document.documentElement).appendChild(style);
+            } catch(e) {}
+
+            // Intercept paste events at capture phase and force them through,
+            // in case Angular's keydown handler is calling preventDefault on paste
+            const forcePaste = (e) => {
+                if (e.type !== 'paste') return;
+                const target = e.target;
+                const text = (e.clipboardData || window.clipboardData)?.getData('text/plain');
+                if (!text || !target) return;
+                // For ace editor, use the editor's insert() method directly
+                try {
+                    const aceContainer = target.closest?.('.ace_editor');
+                    if (aceContainer) {
+                        const editor = aceContainer.env?.editor;
+                        if (editor) {
+                            editor.insert(text);
+                            e.stopPropagation();
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                } catch(err) {}
+                // For plain textareas/inputs, insert at cursor
+                try {
+                    if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+                        const start = target.selectionStart ?? target.value.length;
+                        const end = target.selectionEnd ?? target.value.length;
+                        const before = target.value.slice(0, start);
+                        const after = target.value.slice(end);
+                        target.value = before + text + after;
+                        const newPos = start + text.length;
+                        target.setSelectionRange(newPos, newPos);
+                        // Trigger input event so Angular's form control picks it up
+                        target.dispatchEvent(new Event('input', { bubbles: true }));
+                        target.dispatchEvent(new Event('change', { bubbles: true }));
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }
+                } catch(err) {}
+            };
+            // Capture phase = before Angular's bubble-phase handlers
+            document.addEventListener('paste', forcePaste, true);
+
+            console.log('🔓 Unlocker Active (aggressive mode)!');
         }
     });
 }

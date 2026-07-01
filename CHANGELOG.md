@@ -4,6 +4,22 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.2] - 2026-07-01
+
+### Fixed
+- **GrPA Editor Paste/Copy Aggressive Unlock** — Old unlock only set `editor.setReadOnly(false)`. New portal's Angular component adds `<div class="readonly_line">` overlays on top of the ace editor (visible as gray bands) that visually mark the read-only prefix/suffix code and can also swallow pointer events. New unlocker:
+  - Removes all `.readonly_line` elements from the editor
+  - Forces `editor.getSession().setReadOnly(false)` on the ace session (in addition to the editor)
+  - Removes `.is-disabled` and `.is-readonly` from the `.code-editor` wrapper
+  - Removes any `.ace_readonly` / `.ace_invisible` / `.ace_obstructive_overlay` swallow divs
+  - Injects a `<style id="iitm-unlock-style">` that forces `user-select: text` everywhere and hides `.readonly_line` permanently
+- **Paste Event Intercept** — Some Angular keydown handlers call `preventDefault()` on the native paste event before it reaches the ace editor. Added a capture-phase `paste` listener that:
+  - For ace editor: calls `editor.insert(text)` directly with the clipboard text
+  - For textareas/inputs: inserts at cursor, fires `input` and `change` events so Angular's form control picks it up
+- **Re-runs Unlock on T=300ms and T=1000ms** — Angular sometimes re-applies the read-only state on initial render. The 3-pass unlock ensures it sticks.
+
+---
+
 ## [1.9.1] - 2026-07-01
 
 ### Fixed
