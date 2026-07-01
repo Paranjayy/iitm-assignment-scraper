@@ -95,111 +95,28 @@ function unlockPage(tabId) {
         target: { tabId: tabId },
         world: 'MAIN',
         func: () => {
-            const doUnlock = () => {
-                document.querySelectorAll('.ace_editor').forEach(el => {
-                    try {
-                        const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
-                        if (editor) {
-                            // Persistence: Force readonly to false even if the site tries to re-lock it
-                            editor.setReadOnly(false);
-                            editor.setOptions({ 
-                                readOnly: false,
-                                enableBasicAutocompletion: true,
-                                enableLiveAutocompletion: true
-                            });
-                            
-                            if (!editor.__unlocked) {
-                                editor.__unlocked = true;
-                                const originalSetReadOnly = editor.setReadOnly;
-                                editor.setReadOnly = function(ro) {
-                                    return originalSetReadOnly.call(this, false);
-                                };
-                                
-                                // Reset shortcuts if they were blocked
-                                editor.commands.addCommand({
-                                    name: 'undo',
-                                    bindKey: {win: 'Ctrl-Z',  mac: 'Command-Z'},
-                                    exec: (editor) => { if(editor.undoManager) editor.undoManager.undo(); else editor.undo(); }
-                                });
-                                editor.commands.addCommand({
-                                    name: 'redo',
-                                    bindKey: {win: 'Ctrl-Y|Ctrl-Shift-Z',  mac: 'Command-Shift-Z'},
-                                    exec: (editor) => { if(editor.undoManager) editor.undoManager.redo(); else editor.redo(); }
-                                });
-                                
-                                editor.textInput.getElement().removeAttribute('readonly');
-                                editor.textInput.getElement().disabled = false;
-                            }
-                        }
-                    } catch(e) {}
-                    
-                    // Force the underlying textarea properties
-                    el.querySelectorAll('textarea').forEach(ta => {
-                        ta.removeAttribute('readonly');
-                        ta.readOnly = false;
-                        ta.disabled = false;
-                        ta.style.pointerEvents = 'auto';
-                        ta.style.opacity = '1';
-                    });
-                    
-                    el.classList.remove('ace_readonly');
-                    el.classList.remove('readonly');
-                    // GrPA-specific: remove is-disabled class and fix pointer events
-                    el.closest('.code-editor')?.classList.remove('is-disabled');
-                    el.style.pointerEvents = 'auto';
-                    el.style.opacity = '1';
-                    // Fix Angular form control
-                    el.closest('app-code-editor')?.classList.remove('ng-disabled');
-                });
-                
-                // True Native Cut/Copy/Paste mapped directly via AceEditor memory APIs
-                window.addEventListener('keydown', (e) => {
-                    const isMeta = e.ctrlKey || e.metaKey;
-                    if (!isMeta) return;
-                    
-                    const key = e.key.toLowerCase();
-                    if (key === 'c' || key === 'x') {
-                        document.querySelectorAll('.ace_editor').forEach(el => {
-                            try {
-                                const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
-                                if (editor && editor.isFocused()) {
-                                    let text = '';
-                                    try { text = editor.getCopyText(); } catch(e) {}
-                                    if (!text || text.length === 0) {
-                                        const fallbackTA = el.querySelector('textarea.ace_text-input');
-                                        if (fallbackTA) text = fallbackTA.value;
-                                    }
-                                    if (text) navigator.clipboard.writeText(text).catch(()=>{});
-                                    if (key === 'x') editor.execCommand('backspace'); // Native cut removal
-                                    e.preventDefault(); e.stopPropagation();
-                                }
-                            } catch(err) {}
-                        });
-                    } else if (key === 'v') {
-                        // Suppress the V keystroke from Angular anti-cheat monitors
-                        // Chrome will then inherently follow up with a native 'paste' event cascading down
-                        // directly into the AceEditor where it is natively absorbed!
-                        e.stopPropagation();
+            // Simple unlock: set readOnly to false, don't break Angular
+            document.querySelectorAll('.ace_editor').forEach(el => {
+                try {
+                    const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
+                    if (editor && editor.getReadOnly()) {
+                        editor.setReadOnly(false);
                     }
-                }, true);
-
-                // Obliterate Site-Wide Right-Click Blockers
-                document.oncontextmenu = null;
-                if (document.body) document.body.oncontextmenu = null;
-                window.addEventListener('contextmenu', (e) => e.stopPropagation(), true);
-            };
-
-            doUnlock();
-            
-            let count = 0;
-            const interval = setInterval(() => {
-                try { doUnlock(); } catch(e) {}
-                if (++count > 40) clearInterval(interval); // Run for 80s
-            }, 2000);
-            
-            // No MutationObserver — the interval already handles re-unlocking every 2s
-
-            console.log('🔓 Ultimate Unlocker Active!');
+                } catch(e) {}
+                // Fix textarea
+                el.querySelectorAll('textarea').forEach(ta => {
+                    if (ta.hasAttribute('readonly')) ta.removeAttribute('readonly');
+                    if (ta.readOnly) ta.readOnly = false;
+                    if (ta.disabled) ta.disabled = false;
+                });
+                // Remove GrPA disabled classes
+                el.closest('.code-editor')?.classList.remove('is-disabled');
+            });
+            // Right-click
+            document.oncontextmenu = null;
+            if (document.body) document.body.oncontextmenu = null;
+            window.addEventListener('contextmenu', (e) => e.stopPropagation(), true);
+            console.log('🔓 Unlocker Active!');
         }
     });
 }
