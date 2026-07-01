@@ -231,7 +231,24 @@ function unlockPage(tabId) {
                             exec: async (ed) => {
                                 try {
                                     const text = await navigator.clipboard.readText();
-                                    if (text) ed.insert(text);
+                                    if (!text) return;
+                                    // If this is the AUTOCOMPLETE editor, route paste to the main code editor
+                                    const isAutocomplete = ed.container && ed.container.classList && ed.container.classList.contains('ace_autocomplete');
+                                    if (isAutocomplete) {
+                                        // Find the main code editor (any .ace_editor that is NOT ace_autocomplete)
+                                        const mainEl = Array.from(document.querySelectorAll('.ace_editor')).find(el => !el.classList.contains('ace_autocomplete'));
+                                        const mainEditor = mainEl && mainEl.env && mainEl.env.editor;
+                                        if (mainEditor) {
+                                            // Close autocomplete by sending Escape to it
+                                            try { ed.onCommandKey(null, 0, 27); } catch (e) {}
+                                            // Restore focus to main editor
+                                            try { mainEditor.focus(); } catch (e) {}
+                                            // Insert into the main editor
+                                            mainEditor.insert(text);
+                                            return;
+                                        }
+                                    }
+                                    ed.insert(text);
                                 } catch (err) {
                                     try { document.execCommand('paste'); } catch (e2) {}
                                 }

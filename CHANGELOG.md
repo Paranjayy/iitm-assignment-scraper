@@ -4,6 +4,13 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.5] - 2026-07-01
+
+### Fixed
+- **Paste blocked when ace autocomplete popup is open (GrPA 3+)** — The new portal's code editor opens an autocomplete suggestion popup (`.ace_editor.ace_autocomplete`) when the user types. Ctrl+V in that state was being routed to the autocomplete editor's command manager, and the pasted text either went into the suggestion popup (silently dropped) or was rejected. The patched `paste` ace command now detects when it's running on the autocomplete editor (via `ed.container.classList.contains('ace_autocomplete')`), closes the popup (Escape key), refocuses the main code editor, and inserts the clipboard text there.
+
+---
+
 ## [1.9.4] - 2026-07-01
 
 ### Fixed
