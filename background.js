@@ -109,6 +109,12 @@ function unlockPage(tabId) {
                     
                     el.classList.remove('ace_readonly');
                     el.classList.remove('readonly');
+                    // GrPA-specific: remove is-disabled class and fix pointer events
+                    el.closest('.code-editor')?.classList.remove('is-disabled');
+                    el.style.pointerEvents = 'auto';
+                    el.style.opacity = '1';
+                    // Fix Angular form control
+                    el.closest('app-code-editor')?.classList.remove('ng-disabled');
                 });
                 
                 // True Native Cut/Copy/Paste mapped directly via AceEditor memory APIs
@@ -153,8 +159,19 @@ function unlockPage(tabId) {
             let count = 0;
             const interval = setInterval(() => {
                 doUnlock();
-                if (++count > 20) clearInterval(interval);
+                if (++count > 40) clearInterval(interval); // Run for 80s
             }, 2000);
+            
+            // MutationObserver to re-unlock if Angular re-applies restrictions
+            const observer = new MutationObserver((mutations) => {
+                for (const m of mutations) {
+                    if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'aria-disabled')) {
+                        doUnlock();
+                        break;
+                    }
+                }
+            });
+            observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'aria-disabled'] });
 
             console.log('🔓 Ultimate Unlocker Active!');
         }
