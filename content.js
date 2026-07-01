@@ -102,43 +102,41 @@
 
     // === AGGRESSIVE AUTO-UNLOCK ===
     // Angular re-locks the editor after initial render and on tab switches.
-    // Fire unlock multiple times to cover initial load, Angular settle, and tab clicks.
-    const fireUnlock = () => chrome.runtime.sendMessage({ action: 'unlockPage' });
+    // Throttled to avoid flooding the message channel.
+    let lastUnlockAt = 0;
+    const fireUnlock = () => {
+        const now = Date.now();
+        // Throttle: max once per 500ms
+        if (now - lastUnlockAt < 500) return;
+        lastUnlockAt = now;
+        // sendMessage without expecting a response (avoids promise rejection)
+        try { chrome.runtime.sendMessage({ action: 'unlockPage' }); } catch (e) {}
+    };
     // Initial sweep: 0ms, 500ms, 1.5s, 3s (covers Angular's first render + settle)
     [0, 500, 1500, 3000].forEach(ms => setTimeout(fireUnlock, ms));
-    // Periodic re-unlock every 2s for the first 20s (catches late Angular updates)
+    // Periodic re-unlock every 3s for the first 30s (catches late Angular updates)
     let unlockCount = 0;
     const periodicId = setInterval(() => {
         fireUnlock();
         if (++unlockCount >= 10) clearInterval(periodicId);
-    }, 2000);
+    }, 3000);
 
-    // Re-unlock on any tab click (Question / Test Cases / Solution)
+    // Re-unlock on any tab click (Question / Test Cases / Solution) - throttled via fireUnlock
     document.addEventListener('click', (e) => {
         const tab = e.target.closest('button[role="tab"], .tab-item, [class*="tab-bar"] button');
         if (tab) {
-            // After tab swap, Angular re-renders. Re-unlock.
             setTimeout(fireUnlock, 200);
-            setTimeout(fireUnlock, 800);
+            setTimeout(fireUnlock, 1500);
         }
     }, true);
 
     // Re-unlock whenever a new ace editor appears in the DOM
     // (e.g. switching from MCQ to GrPA in same session, or navigating between assignments)
-    const editorObserver = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-            for (const node of m.addedNodes) {
-                if (node.nodeType !== 1) continue;
-                if (node.matches && node.matches('.ace_editor, app-pa-code-editor, app-code-editor')) {
-                    fireUnlock();
-                    return;
-                }
-                if (node.querySelector && node.querySelector('.ace_editor')) {
-                    fireUnlock();
-                    return;
-                }
-            }
-        }
+    let mutationTimer = null;
+    const editorObserver = new MutationObserver(() => {
+        // Debounce: only fire after mutations stop for 200ms
+        if (mutationTimer) clearTimeout(mutationTimer);
+        mutationTimer = setTimeout(fireUnlock, 200);
     });
     editorObserver.observe(document.body, { childList: true, subtree: true });
 

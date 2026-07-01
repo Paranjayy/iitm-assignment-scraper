@@ -4,6 +4,18 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.6] - 2026-07-01
+
+### Fixed
+- **Throttled auto-unlocker** — Previous version fired `chrome.runtime.sendMessage({action: 'unlockPage'})` too aggressively (initial sweep + 2s periodic + tab click + MutationObserver), which flooded the message channel and produced hundreds of "message channel closed" errors. New version:
+  - Throttles `fireUnlock` to **max once per 500ms**
+  - Sends message without expecting response (`try/catch` swallows rejections)
+  - Periodic interval changed from 2s → 3s, capped at 10 invocations (30s total)
+  - Tab click debounce changed from 200ms/800ms → 200ms/1500ms
+  - MutationObserver debounced via `setTimeout(200)` so it only fires after mutations settle
+
+---
+
 ## [1.9.5] - 2026-07-01
 
 ### Fixed
