@@ -4,6 +4,17 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.4] - 2026-07-01
+
+### Fixed
+- **Copy / Cut from GrPA Editor** — Angular handlers were calling `preventDefault()` on copy/cut/keydown BEFORE the browser's native clipboard action could fire. New `background.js` unlocker adds three layers of interception:
+  1. **Capture-phase `copy` / `cut` listeners** — When Angular blocks the event, manually write the current selection to the clipboard via `navigator.clipboard.writeText()` (with `execCommand` fallback). For ace editor: uses `editor.getSelectionRange()` + `session.getTextRange()`. For textareas: uses native `selectionStart/End`.
+  2. **Capture-phase `keydown` for Ctrl/Cmd+C/X** — Some Angular handlers run at capture phase and preventDefault BEFORE the `copy` event fires. This catches the keyboard combo first, gets the selection from the active element, writes to clipboard, and prevents default. Handles both ace and plain textareas.
+  3. **Clipboard write fallback chain** — Primary: `navigator.clipboard.writeText()`. Fallback: create a hidden `<textarea>`, select, `document.execCommand('copy')`.
+  - **Cut support:** for both ace and textareas, when cut is intercepted, the selected text is also removed from the editor (with proper input/change events fired for Angular's form control).
+
+---
+
 ## [1.9.3] - 2026-07-01
 
 ### Added

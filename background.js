@@ -183,6 +183,208 @@ function unlockPage(tabId) {
             // Capture phase = before Angular's bubble-phase handlers
             document.addEventListener('paste', forcePaste, true);
 
+            // === COPY / CUT INTERCEPTORS ===
+            // Angular may block copy/cut with preventDefault on keydown.
+            // Strategy: capture-phase copy/cut listener that, if e.preventDefault
+            // was called, manually writes the selection to the clipboard via the
+            // async Clipboard API, then dispatches a synthetic 'copy' so the browser
+            // shows its native "Copied" feedback. For ace editor, use the
+            // editor.session.getTextRange() to grab the current selection.
+            const forceCopy = async (e) => {
+                // Only handle copy/cut, not paste
+                if (e.type !== 'copy' && e.type !== 'cut') return;
+                const target = e.target;
+
+                // === ACE EDITOR ===
+                try {
+                    const aceContainer = target.closest && target.closest('.ace_editor');
+                    if (aceContainer) {
+                        const editor = aceContainer.env && aceContainer.env.editor;
+                        if (editor) {
+                            const session = editor.getSession();
+                            const range = editor.getSelectionRange();
+                            const selectedText = session.getTextRange(range);
+                            if (selectedText) {
+                                // Write to clipboard via async API (bypasses preventDefault)
+                                try {
+                                    await navigator.clipboard.writeText(selectedText);
+                                } catch (err) {
+                                    // Fallback: use execCommand on a temporary textarea
+                                    const ta = document.createElement('textarea');
+                                    ta.value = selectedText;
+                                    ta.style.position = 'fixed';
+                                    ta.style.opacity = '0';
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    try { document.execCommand('copy'); } catch (e2) {}
+                                    document.body.removeChild(ta);
+                                }
+                                // If cut, also delete the selection
+                                if (e.type === 'cut') {
+                                    editor.getSession().replace(range, '');
+                                }
+                                e.stopPropagation();
+                                e.preventDefault();
+                                return;
+                            }
+                        }
+                    }
+                } catch (err) {}
+
+                // === PLAIN TEXTAREA / INPUT ===
+                try {
+                    if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
+                        const start = target.selectionStart ?? 0;
+                        const end = target.selectionEnd ?? 0;
+                        const selectedText = target.value.slice(start, end);
+                        if (selectedText) {
+                            try {
+                                await navigator.clipboard.writeText(selectedText);
+                            } catch (err) {
+                                const ta = document.createElement('textarea');
+                                ta.value = selectedText;
+                                ta.style.position = 'fixed';
+                                ta.style.opacity = '0';
+                                document.body.appendChild(ta);
+                                ta.select();
+                                try { document.execCommand('copy'); } catch (e2) {}
+                                document.body.removeChild(ta);
+                            }
+                            if (e.type === 'cut') {
+                                target.value = target.value.slice(0, start) + target.value.slice(end);
+                                target.setSelectionRange(start, start);
+                                target.dispatchEvent(new Event('input', { bubbles: true }));
+                                target.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                            e.stopPropagation();
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                } catch (err) {}
+
+                // === DOM SELECTION (regular page text) ===
+                try {
+                    const sel = window.getSelection && window.getSelection();
+                    if (sel && sel.toString()) {
+                        const text = sel.toString();
+                        try {
+                            await navigator.clipboard.writeText(text);
+                        } catch (err) {
+                            // Last resort: execCommand
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            try { document.execCommand('copy'); } catch (e2) {}
+                            document.body.removeChild(ta);
+                        }
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }
+                } catch (err) {}
+            };
+            // Capture phase for both copy and cut
+            document.addEventListener('copy', forceCopy, true);
+            document.addEventListener('cut', forceCopy, true);
+
+            // === KEYBOARD FALLBACK (Ctrl/Cmd + C / X) ===
+            // Some Angular handlers run at the capture phase and preventDefault
+            // BEFORE the copy/cut event even fires. In that case, we catch the
+            // keydown and trigger our own copy logic.
+            const keyHandler = async (e) => {
+                const isCopy = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'c';
+                const isCut = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'x';
+                if (!isCopy && !isCut) return;
+
+                // Find the active element and try to get its selection
+                const active = document.activeElement;
+                if (!active) return;
+
+                // === ACE ===
+                const aceContainer = active.closest && active.closest('.ace_editor');
+                if (aceContainer) {
+                    const editor = aceContainer.env && aceContainer.env.editor;
+                    if (editor) {
+                        const range = editor.getSelectionRange();
+                        const text = editor.getSession().getTextRange(range);
+                        if (text) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            try {
+                                await navigator.clipboard.writeText(text);
+                            } catch (err) {
+                                const ta = document.createElement('textarea');
+                                ta.value = text;
+                                ta.style.position = 'fixed';
+                                ta.style.opacity = '0';
+                                document.body.appendChild(ta);
+                                ta.select();
+                                try { document.execCommand('copy'); } catch (e2) {}
+                                document.body.removeChild(ta);
+                            }
+                            if (isCut) {
+                                editor.getSession().replace(range, '');
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                // === TEXTAREA / INPUT ===
+                if (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') {
+                    const start = active.selectionStart ?? 0;
+                    const end = active.selectionEnd ?? 0;
+                    const text = active.value.slice(start, end);
+                    if (text) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        try {
+                            await navigator.clipboard.writeText(text);
+                        } catch (err) {
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            try { document.execCommand('copy'); } catch (e2) {}
+                            document.body.removeChild(ta);
+                        }
+                        if (isCut) {
+                            active.value = active.value.slice(0, start) + active.value.slice(end);
+                            active.setSelectionRange(start, start);
+                            active.dispatchEvent(new Event('input', { bubbles: true }));
+                            active.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        return;
+                    }
+                }
+
+                // === DOM SELECTION (page text) ===
+                const sel = window.getSelection && window.getSelection();
+                if (sel && sel.toString()) {
+                    const text = sel.toString();
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try {
+                        await navigator.clipboard.writeText(text);
+                    } catch (err) {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        try { document.execCommand('copy'); } catch (e2) {}
+                        document.body.removeChild(ta);
+                    }
+                }
+            };
+            document.addEventListener('keydown', keyHandler, true);
+
             console.log('🔓 Unlocker Active (aggressive mode)!');
         }
     });
