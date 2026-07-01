@@ -334,7 +334,7 @@
                 }
             });
 
-            // === 3. ACE EDITOR CONTENT (current code / template) ===
+            // === 3. ACE EDITOR CONTENT (current code / template / user's solution) ===
             const aceEditor = document.querySelector('.ace_editor');
             if (aceEditor) {
                 try {
@@ -342,9 +342,13 @@
                     if (editor) {
                         const code = editor.getValue();
                         if (code && code.trim().length > 5) {
-                            // Check if it's template code (contains ...) or user code
                             const isTemplate = code.includes('...');
-                            const label = isTemplate ? 'Template Code (from editor)' : 'Your Current Code';
+                            const isDisabled = aceEditor.closest('.is-disabled') || aceEditor.querySelector('textarea[aria-disabled="true"]');
+                            let label;
+                            if (isTemplate && !isDisabled) label = 'Template Code';
+                            else if (isDisabled && !isTemplate) label = 'Your Solution';
+                            else if (isDisabled && isTemplate) label = 'Template Code (locked)';
+                            else label = 'Your Code';
                             markdown += `## ${label}\n\n`;
                             markdown += '```python\n' + code + '\n```\n\n';
                         }
@@ -459,32 +463,51 @@
             if (solutionTab) {
                 const isDisabled = solutionTab.classList.contains('disabled') || solutionTab.getAttribute('aria-disabled') === 'true';
                 if (!isDisabled) {
-                    console.log('[GRPA] Clicking Solution tab...');
+                    console.log('[GRPA] Solution tab is unlocked — clicking...');
                     solutionTab.click();
-                    await new Promise(r => setTimeout(r, 800));
+                    await new Promise(r => setTimeout(r, 1000)); // Wait longer for solution to load
 
+                    // Extract solution content
                     const solutionContent = document.querySelector('.tabs-content');
                     if (solutionContent) {
-                        const solMd = extractHtml(solutionContent);
-                        if (solMd.trim()) {
+                        // Look for code blocks in solution
+                        const solCodeBlocks = solutionContent.querySelectorAll('pre, code, .code-block');
+                        if (solCodeBlocks.length > 0) {
                             markdown += '## Official Solution\n\n';
-                            markdown += solMd + '\n\n';
-                        }
-                    }
-
-                    // Also check for ace editor with solution code
-                    const solEditor = document.querySelector('.ace_editor');
-                    if (solEditor) {
-                        try {
-                            const editor = solEditor.env?.editor || (typeof ace !== 'undefined' ? ace.edit(solEditor) : null);
-                            if (editor) {
-                                const code = editor.getValue();
-                                if (code && code.trim().length > 5 && !code.includes('...')) {
-                                    markdown += '## Official Solution Code\n\n';
-                                    markdown += '```python\n' + code + '\n```\n\n';
+                            solCodeBlocks.forEach(block => {
+                                const code = block.querySelector('code') || block;
+                                const text = code.textContent.trim();
+                                if (text && text.length > 3) {
+                                    let lang = code.className?.match(/language-(\w+)/)?.[1] || '';
+                                    if (!lang || lang === 'plaintext') lang = 'python';
+                                    markdown += '```' + lang + '\n' + text + '\n```\n\n';
                                 }
+                            });
+                        }
+                        
+                        // Also check for ace editor with solution
+                        const solAce = solutionContent.querySelector('.ace_editor');
+                        if (solAce) {
+                            try {
+                                const editor = solAce.env?.editor || (typeof ace !== 'undefined' ? ace.edit(solAce) : null);
+                                if (editor) {
+                                    const code = editor.getValue();
+                                    if (code && code.trim().length > 5) {
+                                        markdown += '## Official Solution Code\n\n';
+                                        markdown += '```python\n' + code + '\n```\n\n';
+                                    }
+                                }
+                            } catch(e) {}
+                        }
+                        
+                        // If no code blocks found, try text extraction
+                        if (!markdown.includes('## Official Solution')) {
+                            const solMd = extractHtml(solutionContent);
+                            if (solMd.trim() && solMd.length > 10) {
+                                markdown += '## Official Solution\n\n';
+                                markdown += solMd + '\n\n';
                             }
-                        } catch(e) {}
+                        }
                     }
 
                     // Click back to Question tab
@@ -1296,17 +1319,32 @@
                                 const marksEl = document.querySelector('.question-marks');
                                 const marksText = marksEl ? marksEl.textContent.trim() : '';
                                 
-                                // Extract options (MCQ)
+                                // Extract options (MCQ) — with review mode support
                                 const choices = Array.from(document.querySelectorAll('button.choice'));
                                 let optionsMd = '';
                                 if (choices.length > 0) {
+                                    // Check if we're in review mode
+                                    const isReview = !!document.querySelector('.correct.evaluated-answer, .incorrect.evaluated-answer, .evaluated-answer');
+                                    
+                                    // Get review header info (correct/incorrect + score)
+                                    let reviewHeader = '';
+                                    if (isReview) {
+                                        const headerEl = document.querySelector('.correct.evaluated-answer .header, .incorrect.evaluated-answer .header, .evaluated-answer .header');
+                                        if (headerEl) {
+                                            const statusText = headerEl.querySelector('.text')?.textContent?.trim() || '';
+                                            const scoreText = headerEl.querySelector('span:last-child')?.textContent?.trim() || '';
+                                            if (statusText) reviewHeader = `> **${statusText}**`;
+                                            if (scoreText && scoreText !== statusText) reviewHeader += ` ${scoreText}`;
+                                            if (reviewHeader) reviewHeader += '\n\n';
+                                        }
+                                    }
+                                    
                                     optionsMd = '\n\n**Options:**\n\n';
                                     choices.forEach(choice => {
                                         const letter = choice.querySelector('.choice-letter')?.textContent?.trim() || '';
                                         const textEl = choice.querySelector('.choice-text');
                                         let optionText = '';
                                         if (textEl) {
-                                            // Extract from backend-html
                                             const main = textEl.querySelector('main');
                                             if (main) {
                                                 optionText = main.textContent.trim();
@@ -1314,10 +1352,22 @@
                                                 optionText = textEl.textContent.trim();
                                             }
                                         }
+                                        
+                                        // Review mode: mark correct/incorrect/selected
+                                        let badge = '';
+                                        if (isReview) {
+                                            const isCorrect = choice.classList.contains('is-correct');
+                                            const isSelected = choice.getAttribute('aria-checked') === 'true';
+                                            if (isCorrect) badge = ' ✅';
+                                            else if (isSelected) badge = ' ❌ (your answer)';
+                                        }
+                                        
                                         if (letter && optionText) {
-                                            optionsMd += `- **${letter}** ${optionText}\n`;
+                                            optionsMd += `- **${letter}** ${optionText}${badge}\n`;
                                         }
                                     });
+                                    // Prepend review header to options
+                                    if (reviewHeader) optionsMd = reviewHeader + optionsMd;
                                 }
                                 
                                 // Check for text input (non-MCQ)
