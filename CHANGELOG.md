@@ -4,6 +4,17 @@ All notable changes to the IITM Portal Spotlight & Scraper extension.
 
 ---
 
+## [1.9.3] - 2026-07-01
+
+### Added
+- **Aggressive Auto-Unlock** — `content.js` now fires `unlockPage` automatically in multiple waves without user action:
+  - **Initial sweep:** 0ms, 500ms, 1.5s, 3s (covers Angular's first render + settle)
+  - **Periodic re-unlock:** every 2s for the first 20s (catches late Angular re-renders)
+  - **Tab click re-unlock:** clicking Question / Test Cases / Solution tab fires unlock at +200ms and +800ms (catches post-tab-swap re-lock)
+  - **MutationObserver:** any new `.ace_editor` / `app-pa-code-editor` / `app-code-editor` added to the DOM triggers an immediate unlock (catches navigation between MCQ and GrPA, or between assignments, without page reload)
+
+---
+
 ## [1.9.2] - 2026-07-01
 
 ### Fixed

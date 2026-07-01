@@ -100,6 +100,48 @@
     // AUTO-UNLOCK: Request an unlock as soon as we load
     chrome.runtime.sendMessage({ action: 'unlockPage' });
 
+    // === AGGRESSIVE AUTO-UNLOCK ===
+    // Angular re-locks the editor after initial render and on tab switches.
+    // Fire unlock multiple times to cover initial load, Angular settle, and tab clicks.
+    const fireUnlock = () => chrome.runtime.sendMessage({ action: 'unlockPage' });
+    // Initial sweep: 0ms, 500ms, 1.5s, 3s (covers Angular's first render + settle)
+    [0, 500, 1500, 3000].forEach(ms => setTimeout(fireUnlock, ms));
+    // Periodic re-unlock every 2s for the first 20s (catches late Angular updates)
+    let unlockCount = 0;
+    const periodicId = setInterval(() => {
+        fireUnlock();
+        if (++unlockCount >= 10) clearInterval(periodicId);
+    }, 2000);
+
+    // Re-unlock on any tab click (Question / Test Cases / Solution)
+    document.addEventListener('click', (e) => {
+        const tab = e.target.closest('button[role="tab"], .tab-item, [class*="tab-bar"] button');
+        if (tab) {
+            // After tab swap, Angular re-renders. Re-unlock.
+            setTimeout(fireUnlock, 200);
+            setTimeout(fireUnlock, 800);
+        }
+    }, true);
+
+    // Re-unlock whenever a new ace editor appears in the DOM
+    // (e.g. switching from MCQ to GrPA in same session, or navigating between assignments)
+    const editorObserver = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            for (const node of m.addedNodes) {
+                if (node.nodeType !== 1) continue;
+                if (node.matches && node.matches('.ace_editor, app-pa-code-editor, app-code-editor')) {
+                    fireUnlock();
+                    return;
+                }
+                if (node.querySelector && node.querySelector('.ace_editor')) {
+                    fireUnlock();
+                    return;
+                }
+            }
+        }
+    });
+    editorObserver.observe(document.body, { childList: true, subtree: true });
+
     // AUTO-START: Removed from page load — only triggered when user clicks Export
     // (User needs to read guidelines first before starting the assignment)
 })();
