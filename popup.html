@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 320px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    padding: 16px;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .header img { width: 28px; height: 28px; border-radius: 6px; }
+  .header h1 { font-size: 15px; font-weight: 600; }
+  .header .version { font-size: 11px; color: #8b949e; margin-left: auto; }
+  .section { margin-bottom: 14px; }
+  .section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #8b949e; margin-bottom: 8px; }
+  .btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    color: #e1e4e8;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 6px;
+  }
+  .btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
+  .btn:active { transform: scale(0.98); }
+  .btn .icon { font-size: 16px; width: 22px; text-align: center; }
+  .btn .label { flex: 1; }
+  .btn .shortcut { font-size: 10px; color: #8b949e; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; }
+  .btn.primary { border-color: rgba(88,166,255,0.3); background: rgba(88,166,255,0.08); }
+  .btn.primary:hover { background: rgba(88,166,255,0.15); }
+  .divider { height: 1px; background: rgba(255,255,255,0.06); margin: 12px 0; }
+  .footer { text-align: center; font-size: 10px; color: #484f58; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <img src="images/icon48.png" alt="icon">
+    <h1>IITM Extension</h1>
+    <span class="version">v1.9.0</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Export</div>
+    <button class="btn primary" id="scrape">
+      <span class="icon">📝</span>
+      <span class="label">Export to Markdown</span>
+      <span class="shortcut">Click icon</span>
+    </button>
+    <button class="btn" id="bulk">
+      <span class="icon">📦</span>
+      <span class="label">Bulk Export All Weeks</span>
+    </button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Tools</div>
+    <button class="btn" id="unlock">
+      <span class="icon">🔓</span>
+      <span class="label">Unlock Editor / Paste</span>
+      <span class="shortcut">⌘⇧U</span>
+    </button>
+    <button class="btn" id="spotlight">
+      <span class="icon">🔍</span>
+      <span class="label">Spotlight Search</span>
+      <span class="shortcut">⌘K</span>
+    </button>
+    <button class="btn" id="darkmode">
+      <span class="icon">🌙</span>
+      <span class="label">Toggle Dark Mode</span>
+    </button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">AI</div>
+    <button class="btn" id="ai-chatgpt">
+      <span class="icon">🤖</span>
+      <span class="label">Explain with ChatGPT</span>
+    </button>
+    <button class="btn" id="ai-claude">
+      <span class="icon">🧠</span>
+      <span class="label">Solve with Claude</span>
+    </button>
+  </div>
+
+  <div class="footer">IITM BS DS Portal Extension • seek.study.iitm.ac.in</div></button></span></span>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+</div></script>

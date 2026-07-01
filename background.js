@@ -5,13 +5,13 @@ chrome.runtime.onInstalled.addListener(() => {
       id: "scrapeAssignment",
       title: "📝 Export to Markdown",
       contexts: ["all"],
-      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*", "https://ds.study.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
     });
     chrome.contextMenus.create({
       id: "unlockPage",
       title: "🔓 Unlock Editor/Copy-Paste",
       contexts: ["all"],
-      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*", "https://ds.study.iitm.ac.in/*", "https://score-checker-379619009600.asia-south1.run.app/*"]
     });
 
     // Top-level UI Management (No nesting as requested)
@@ -49,7 +49,42 @@ chrome.runtime.onInstalled.addListener(() => {
       id: "sendToNotes",
       title: "📝 Send Selected to Notes",
       contexts: ["selection"],
-      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*"]
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*"]
+    });
+    
+    // Separator
+    chrome.contextMenus.create({ id: "sep1", type: "separator", contexts: ["all"], documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*", "https://ds.study.iitm.ac.in/*"] });
+    
+    // GrPA-specific
+    chrome.contextMenus.create({
+      id: "scrapeGrPA",
+      title: "💻 Export GrPA (Problem + Code + Tests)",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*"]
+    });
+    
+    // Bulk export
+    chrome.contextMenus.create({
+      id: "bulkExport",
+      title: "📦 Bulk Export All Weeks",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*"]
+    });
+    
+    // Spotlight search
+    chrome.contextMenus.create({
+      id: "openSpotlight",
+      title: "🔍 Open Spotlight (⌘K)",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*"]
+    });
+    
+    // Dark mode
+    chrome.contextMenus.create({
+      id: "toggleDarkMode",
+      title: "🌙 Toggle Dark Mode",
+      contexts: ["all"],
+      documentUrlPatterns: ["https://seek.onlinedegree.iitm.ac.in/*", "https://seek.study.iitm.ac.in/*"]
     });
   });
 });
