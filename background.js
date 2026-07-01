@@ -95,52 +95,35 @@ function unlockPage(tabId) {
         target: { tabId: tabId },
         world: 'MAIN',
         func: () => {
-            const LOG = (...a) => console.log('[IITM-Unlock]', ...a);
+            // Opt-in debug logging: set localStorage.iitmDebug = '1' in DevTools console to enable
+            const debug = () => localStorage.getItem('iitmDebug') === '1';
+            const LOG = (...a) => { if (debug()) console.log('[IITM-Unlock]', ...a); };
             // Aggressive unlock for new portal's ace editor + Angular overlays
             const unlock = () => {
-                const editors = document.querySelectorAll('.ace_editor');
-                LOG('unlock() running, found', editors.length, 'ace editor(s)');
-                editors.forEach((el, idx) => {
+                if (debug()) LOG('unlock() running, found', document.querySelectorAll('.ace_editor').length, 'ace editor(s)');
+                document.querySelectorAll('.ace_editor').forEach(el => {
                     try {
                         const editor = el.env?.editor || (typeof ace !== 'undefined' ? ace.edit(el) : null);
                         if (editor) {
-                            const wasReadOnly = editor.getReadOnly();
-                            if (wasReadOnly) editor.setReadOnly(false);
-                            // Force the read-only state off on the session too
+                            if (editor.getReadOnly()) editor.setReadOnly(false);
                             try { editor.getSession().setReadOnly(false); } catch(e) {}
-                            if (idx === 0) LOG('editor[' + idx + '] wasReadOnly=' + wasReadOnly + ' now=' + editor.getReadOnly());
-                        } else {
-                            if (idx === 0) LOG('editor[' + idx + '] NOT FOUND on el.env', el);
                         }
-                    } catch(e) { LOG('editor err', e); }
-                    // Fix textareas (ace uses one for input)
-                    const tas = el.querySelectorAll('textarea');
-                    tas.forEach(ta => {
-                        const before = { ro: ta.readOnly, dis: ta.disabled, attrRo: ta.hasAttribute('readonly') };
+                    } catch(e) {}
+                    el.querySelectorAll('textarea').forEach(ta => {
                         ta.removeAttribute('readonly');
                         ta.removeAttribute('disabled');
                         ta.removeAttribute('aria-disabled');
                         ta.readOnly = false;
                         ta.disabled = false;
-                        if (idx === 0) LOG('textarea before:', before, 'after readOnly=' + ta.readOnly + ' disabled=' + ta.disabled);
                     });
-                    // Remove the visual read-only overlays Angular puts on top
-                    const roLines = el.querySelectorAll('.readonly_line');
-                    if (roLines.length && idx === 0) LOG('removing', roLines.length, 'readonly_line overlays');
                     el.querySelectorAll('.readonly_line').forEach(rl => rl.remove());
-                    // Remove the .is-disabled class on the wrapper that gates input
                     const wrapper = el.closest('.code-editor');
-                    if (wrapper && wrapper.classList.contains('is-disabled') && idx === 0) LOG('removing .is-disabled from wrapper');
                     wrapper?.classList.remove('is-disabled');
                     wrapper?.classList.remove('is-readonly');
-                    // Some portals use a transparent div on top of the scroller to swallow events
-                    const overlays = el.querySelectorAll('.ace_readonly, .ace_invisible, .ace_obstructive_overlay');
-                    if (overlays.length && idx === 0) LOG('removing', overlays.length, 'overlay divs');
-                    overlays.forEach(o => o.remove());
+                    el.querySelectorAll('.ace_readonly, .ace_invisible, .ace_obstructive_overlay').forEach(o => o.remove());
                 });
             };
             unlock();
-            // Re-run after a delay to catch Angular re-renders
             setTimeout(unlock, 300);
             setTimeout(unlock, 1000);
 
@@ -214,7 +197,6 @@ function unlockPage(tabId) {
             // beforeinput fires BEFORE keydown is processed for paste actions.
             document.addEventListener('beforeinput', async (e) => {
                 if (e.inputType !== 'insertFromPaste' && e.inputType !== 'insertFromClipboard') return;
-                LOG('BEFOREINPUT event captured!', 'inputType:', e.inputType, 'target:', e.target?.tagName);
                 const aceContainer = e.target?.closest?.('.ace_editor');
                 if (aceContainer) {
                     const editor = aceContainer.env?.editor;
@@ -222,15 +204,11 @@ function unlockPage(tabId) {
                         try {
                             const text = await navigator.clipboard.readText();
                             if (text) {
-                                LOG('beforeinput: got clipboard text, length:', text.length);
                                 e.preventDefault();
                                 e.stopPropagation();
                                 editor.insert(text);
-                                return;
                             }
-                        } catch (err) {
-                            LOG('beforeinput: clipboard.readText failed:', err.message);
-                        }
+                        } catch (err) {}
                     }
                 }
             }, true);
@@ -241,40 +219,26 @@ function unlockPage(tabId) {
             const hookAceCommands = () => {
                 document.querySelectorAll('.ace_editor').forEach(el => {
                     const editor = el.env?.editor;
-                    if (!editor) return;
-                    if (editor.__iitmPatched) return;
+                    if (!editor || editor.__iitmPatched) return;
                     editor.__iitmPatched = true;
                     try {
-                        // ace has a 'paste' command. Replace it with our own.
+                        // Replace ace's built-in 'paste' command with our own that reads clipboard directly.
+                        // This works even when Angular kills the browser paste event with stopImmediatePropagation.
                         editor.commands.removeCommand('paste');
                         editor.commands.addCommand({
                             name: 'paste',
                             bindKey: { win: 'Ctrl-V', mac: 'Cmd-V' },
                             exec: async (ed) => {
-                                LOG('ace paste command fired');
                                 try {
                                     const text = await navigator.clipboard.readText();
-                                    if (text) {
-                                        ed.insert(text);
-                                        LOG('ace paste command: inserted', text.length, 'chars');
-                                    }
+                                    if (text) ed.insert(text);
                                 } catch (err) {
-                                    LOG('ace paste command: clipboard.readText failed:', err.message);
-                                    // Fallback: try execCommand
-                                    try {
-                                        const ok = document.execCommand('paste');
-                                        LOG('ace paste command: execCommand result:', ok);
-                                    } catch (e2) {
-                                        LOG('ace paste command: execCommand also failed');
-                                    }
+                                    try { document.execCommand('paste'); } catch (e2) {}
                                 }
                             },
                             readOnly: false
                         });
-                        LOG('ace commands: paste command replaced on editor');
-                    } catch (err) {
-                        LOG('ace commands: failed to patch:', err.message);
-                    }
+                    } catch (err) {}
                 });
             };
             hookAceCommands();
